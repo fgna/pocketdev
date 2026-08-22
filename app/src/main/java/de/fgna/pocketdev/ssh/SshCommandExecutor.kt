@@ -1,0 +1,92 @@
+package de.fgna.pocketdev.ssh
+
+import android.util.Base64
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import net.schmizz.sshj.SSHClient
+import java.io.InputStream
+import java.security.MessageDigest
+
+interface SshCommandExecutor {
+    fun execute(profile: SshProfile, secret: String, command: String): Flow<CommandEvent>
+}
+
+class SshjCommandExecutor : SshCommandExecutor {
+    override fun execute(profile: SshProfile, secret: String, command: String): Flow<CommandEvent> = channelFlow {
+        val ssh = SSHClient()
+        send(CommandEvent.Connecting)
+
+        try {
+            ssh.addHostKeyVerifier { hostname, port, key ->
+                hostname == profile.host &&
+                    port == profile.port &&
+                    sha256Fingerprint(key.encoded) == normalizeFingerprint(profile.hostKeySha256)
+            }
+
+            withContext(Dispatchers.IO) {
+                ssh.connect(profile.host, profile.port)
+                when (profile.authMode) {
+                    AuthMode.PASSWORD -> ssh.authPassword(profile.username, secret)
+                    AuthMode.PRIVATE_KEY -> {
+                        val keyFile = kotlin.io.path.createTempFile("pocketdev-key", ".pem").toFile()
+                        try {
+                            keyFile.writeText(secret)
+                            ssh.authPublickey(profile.username, ssh.loadKeys(keyFile.absolutePath))
+                        } finally {
+                            keyFile.delete()
+                        }
+                    }
+                }
+            }
+            send(CommandEvent.Connected)
+
+            val session = withContext(Dispatchers.IO) { ssh.startSession() }
+            val remote = withContext(Dispatchers.IO) { session.exec(command) }
+
+            val stdoutJob = launch(Dispatchers.IO) {
+                stream(remote.inputStream) { text -> trySend(CommandEvent.Output(OutputStreamKind.STDOUT, text)) }
+            }
+            val stderrJob = launch(Dispatchers.IO) {
+                stream(remote.errorStream) { text -> trySend(CommandEvent.Output(OutputStreamKind.STDERR, text)) }
+            }
+
+            withContext(Dispatchers.IO) { remote.join() }
+            stdoutJob.join()
+            stderrJob.join()
+            val exitCode = remote.exitStatus ?: -1
+            trySend(CommandEvent.Completed(exitCode))
+            withContext(Dispatchers.IO) { session.close() }
+        } catch (error: Exception) {
+            trySend(CommandEvent.ConnectionFailed(error.message ?: error::class.java.simpleName))
+        } finally {
+            withContext(Dispatchers.IO) {
+                runCatching { ssh.disconnect() }
+                runCatching { ssh.close() }
+            }
+            channel.close()
+        }
+
+        awaitClose()
+    }
+
+    private fun stream(input: InputStream, onChunk: (String) -> Unit) {
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            val count = input.read(buffer)
+            if (count <= 0) break
+            onChunk(buffer.decodeToString(0, count))
+        }
+    }
+
+    private fun sha256Fingerprint(encodedKey: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(encodedKey)
+        return Base64.encodeToString(digest, Base64.NO_WRAP or Base64.NO_PADDING)
+    }
+
+    private fun normalizeFingerprint(value: String): String =
+        value.trim().removePrefix("SHA256:")
+}
