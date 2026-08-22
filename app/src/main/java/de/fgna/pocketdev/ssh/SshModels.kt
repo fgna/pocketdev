@@ -46,3 +46,16 @@ data class CommandUiState(
     val succeeded: Boolean
         get() = !running && connectionError == null && exitCode == 0
 }
+
+object CommandStateReducer {
+    fun reduce(current: CommandUiState, event: CommandEvent): CommandUiState = when (event) {
+        CommandEvent.Connecting -> current.copy(running = true, connectionError = null)
+        CommandEvent.Connected -> current.copy(running = true)
+        is CommandEvent.Output -> when (event.stream) {
+            OutputStreamKind.STDOUT -> current.copy(stdout = current.stdout + event.text)
+            OutputStreamKind.STDERR -> current.copy(stderr = current.stderr + event.text)
+        }
+        is CommandEvent.Completed -> current.copy(running = false, exitCode = event.exitCode)
+        is CommandEvent.ConnectionFailed -> current.copy(running = false, connectionError = event.message)
+    }
+}
