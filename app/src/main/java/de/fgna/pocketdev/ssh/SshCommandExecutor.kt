@@ -2,7 +2,6 @@ package de.fgna.pocketdev.ssh
 
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
@@ -57,8 +56,7 @@ class SshjCommandExecutor : SshCommandExecutor {
             withContext(Dispatchers.IO) { remote.join() }
             stdoutJob.join()
             stderrJob.join()
-            val exitCode = remote.exitStatus ?: -1
-            trySend(CommandEvent.Completed(exitCode))
+            trySend(CommandEvent.Completed(remote.exitStatus ?: -1))
             withContext(Dispatchers.IO) { session.close() }
         } catch (error: Exception) {
             trySend(CommandEvent.ConnectionFailed(error.message ?: error::class.java.simpleName))
@@ -67,10 +65,7 @@ class SshjCommandExecutor : SshCommandExecutor {
                 runCatching { ssh.disconnect() }
                 runCatching { ssh.close() }
             }
-            channel.close()
         }
-
-        awaitClose()
     }
 
     private fun stream(input: InputStream, onChunk: (String) -> Unit) {
