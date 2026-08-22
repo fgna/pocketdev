@@ -5,9 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import de.fgna.pocketdev.data.SshProfileRepository
 import de.fgna.pocketdev.ssh.AuthMode
-import de.fgna.pocketdev.ssh.CommandEvent
+import de.fgna.pocketdev.ssh.CommandStateReducer
 import de.fgna.pocketdev.ssh.CommandUiState
-import de.fgna.pocketdev.ssh.OutputStreamKind
 import de.fgna.pocketdev.ssh.SshProfile
 import de.fgna.pocketdev.ssh.SshjCommandExecutor
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -112,20 +111,11 @@ class PocketDevViewModel(application: Application) : AndroidViewModel(applicatio
 
         viewModelScope.launch {
             executor.execute(profile, secret, commandText).collect { event ->
-                _state.update { state -> state.copy(command = reduce(state.command, event)) }
+                _state.update { state ->
+                    state.copy(command = CommandStateReducer.reduce(state.command, event))
+                }
             }
         }
-    }
-
-    private fun reduce(current: CommandUiState, event: CommandEvent): CommandUiState = when (event) {
-        CommandEvent.Connecting -> current.copy(running = true, connectionError = null)
-        CommandEvent.Connected -> current.copy(running = true)
-        is CommandEvent.Output -> when (event.stream) {
-            OutputStreamKind.STDOUT -> current.copy(stdout = current.stdout + event.text)
-            OutputStreamKind.STDERR -> current.copy(stderr = current.stderr + event.text)
-        }
-        is CommandEvent.Completed -> current.copy(running = false, exitCode = event.exitCode)
-        is CommandEvent.ConnectionFailed -> current.copy(running = false, connectionError = event.message)
     }
 
     private fun loadInitialState(): PocketDevState {
