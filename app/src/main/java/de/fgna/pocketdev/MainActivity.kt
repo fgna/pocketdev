@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -36,12 +37,17 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import de.fgna.pocketdev.diagnostics.DiagnosticDraftBuilder
+import de.fgna.pocketdev.diagnostics.DiagnosticIssueDraft
 import de.fgna.pocketdev.project.ProjectAction
 import de.fgna.pocketdev.ssh.AuthMode
 import de.fgna.pocketdev.ui.PocketDevCompactMeta
@@ -63,6 +69,8 @@ class MainActivity : ComponentActivity() {
 fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
+    var issueDraft by remember { mutableStateOf<DiagnosticIssueDraft?>(null) }
+
     val nearbyPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -103,6 +111,13 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                 onCommandChange = vm::setCommand,
                 onRun = runWithLanPermission,
                 onCopy = { text -> copyText(context, text) },
+                onIssueDraft = {
+                    val project = state.project
+                    val exitCode = state.command.exitCode
+                    if (project != null && exitCode != null && exitCode != 0) {
+                        issueDraft = DiagnosticDraftBuilder.build(project, state.command)
+                    }
+                },
             )
         }
 
@@ -121,6 +136,19 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                 onChange = vm::updateProjectEditor,
                 onDismiss = vm::closeProjectEditor,
                 onSave = vm::saveProjectEditor,
+            )
+        }
+
+        issueDraft?.let { draft ->
+            val repository = state.project?.githubRepository.orEmpty()
+            IssueDraftDialog(
+                draft = draft,
+                repository = repository,
+                onDismiss = { issueDraft = null },
+                onOpenGitHub = { title, body ->
+                    openGitHubIssueDraft(context, repository, title, body)
+                    issueDraft = null
+                },
             )
         }
 
@@ -158,6 +186,7 @@ private fun PocketDevHome(
     onCommandChange: (String) -> Unit,
     onRun: () -> Unit,
     onCopy: (String) -> Unit,
+    onIssueDraft: () -> Unit,
 ) {
     val profile = state.profile
     val project = state.project
@@ -346,6 +375,9 @@ private fun PocketDevHome(
                                 },
                             )
                         }
+                        if (execution.exitCode != null && execution.exitCode != 0) {
+                            TextButton(onClick = onIssueDraft) { Text("Issue draft") }
+                        }
                         TextButton(
                             onClick = { onCopy(execution.combinedOutput) },
                             enabled = execution.combinedOutput.isNotBlank(),
@@ -377,10 +409,71 @@ private fun ProjectDialog(
                 OutlinedTextField(value = state.remotePath, onValueChange = { value -> onChange { it.copy(remotePath = value) } }, label = { Text("Remote path") }, supportingText = { Text("Absolute directory on the SSH server") })
                 OutlinedTextField(value = state.testCommand, onValueChange = { value -> onChange { it.copy(testCommand = value) } }, label = { Text("Test command") }, singleLine = true)
                 OutlinedTextField(value = state.buildCommand, onValueChange = { value -> onChange { it.copy(buildCommand = value) } }, label = { Text("Build command") }, singleLine = true)
+                OutlinedTextField(
+                    value = state.githubRepository,
+                    onValueChange = { value -> onChange { it.copy(githubRepository = value.trim()) } },
+                    label = { Text("GitHub repository") },
+                    supportingText = { Text("Optional owner/name, e.g. fgna/pocketdev") },
+                    singleLine = true,
+                )
             }
         },
         confirmButton = {
             TextButton(onClick = onSave, enabled = state.name.isNotBlank() && state.remotePath.isNotBlank()) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun IssueDraftDialog(
+    draft: DiagnosticIssueDraft,
+    repository: String,
+    onDismiss: () -> Unit,
+    onOpenGitHub: (String, String) -> Unit,
+) {
+    var title by remember(draft) { mutableStateOf(draft.title) }
+    var body by remember(draft) { mutableStateOf(draft.body) }
+    val repositoryValid = Regex("^[^/\\s]+/[^/\\s]+$").matches(repository.trim())
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("GitHub issue draft") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    if (repositoryValid) repository else "Configure a GitHub repository as owner/name first.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (repositoryValid) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                )
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Title") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = body,
+                    onValueChange = { body = it },
+                    label = { Text("Body") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 12,
+                )
+                Text(
+                    "Review the redacted diagnostic before opening GitHub. PocketDev does not submit the issue.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onOpenGitHub(title.trim(), body) },
+                enabled = repositoryValid && title.isNotBlank() && body.isNotBlank(),
+            ) { Text("Open in GitHub") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
@@ -445,5 +538,28 @@ private fun openApk(context: Context, path: String) {
     runCatching { context.startActivity(intent) }
         .onFailure {
             Toast.makeText(context, "Android could not open this APK: ${it.message}", Toast.LENGTH_LONG).show()
+        }
+}
+
+private fun openGitHubIssueDraft(context: Context, repository: String, title: String, body: String) {
+    val repo = repository.trim()
+    if (!Regex("^[^/\\s]+/[^/\\s]+$").matches(repo)) {
+        Toast.makeText(context, "Configure the GitHub repository as owner/name first.", Toast.LENGTH_LONG).show()
+        return
+    }
+    val uri = Uri.Builder()
+        .scheme("https")
+        .authority("github.com")
+        .appendPath(repo.substringBefore('/'))
+        .appendPath(repo.substringAfter('/'))
+        .appendPath("issues")
+        .appendPath("new")
+        .appendQueryParameter("title", title)
+        .appendQueryParameter("body", body)
+        .build()
+    val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(intent) }
+        .onFailure {
+            Toast.makeText(context, "Could not open GitHub: ${it.message}", Toast.LENGTH_LONG).show()
         }
 }

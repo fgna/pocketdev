@@ -37,6 +37,7 @@ data class ProjectEditorState(
     val remotePath: String = "",
     val testCommand: String = "./gradlew test",
     val buildCommand: String = "./gradlew assembleDebug",
+    val githubRepository: String = "",
 )
 
 data class PocketDevState(
@@ -121,6 +122,7 @@ class PocketDevViewModel(
                     remotePath = current.remotePath,
                     testCommand = current.testCommand,
                     buildCommand = current.buildCommand,
+                    githubRepository = current.githubRepository,
                 ),
             )
         }
@@ -138,6 +140,7 @@ class PocketDevViewModel(
             remotePath = editor.remotePath.trim(),
             testCommand = editor.testCommand.trim(),
             buildCommand = editor.buildCommand.trim(),
+            githubRepository = editor.githubRepository.trim(),
         )
         projectRepository.save(project)
         updateState { it.copy(project = project, projectEditorOpen = false) }

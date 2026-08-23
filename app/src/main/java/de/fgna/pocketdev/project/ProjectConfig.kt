@@ -5,6 +5,7 @@ data class ProjectConfig(
     val remotePath: String,
     val testCommand: String,
     val buildCommand: String,
+    val githubRepository: String = "",
 )
 
 enum class ProjectAction {
