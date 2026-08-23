@@ -6,7 +6,10 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.schmizz.sshj.SSHClient
+import net.schmizz.sshj.common.SecurityUtils
+import net.schmizz.sshj.transport.verification.HostKeyVerifier
 import java.io.InputStream
+import java.security.PublicKey
 
 interface SshCommandExecutor {
     fun execute(profile: SshProfile, secret: String, command: String): Flow<CommandEvent>
@@ -18,10 +21,32 @@ class SshjCommandExecutor : SshCommandExecutor {
         send(CommandEvent.Connecting)
 
         try {
-            ssh.addHostKeyVerifier(normalizeFingerprint(profile.hostKeySha256))
+            var discoveredFingerprint: String? = null
+            if (profile.hostKeySha256.isBlank()) {
+                ssh.addHostKeyVerifier(object : HostKeyVerifier {
+                    override fun verify(hostname: String, port: Int, key: PublicKey): Boolean {
+                        discoveredFingerprint = SecurityUtils.getFingerprint(key)
+                        return hostname == profile.host && port == profile.port
+                    }
+
+                    override fun findExistingAlgorithms(hostname: String, port: Int): List<String> = emptyList()
+                })
+            } else {
+                ssh.addHostKeyVerifier(profile.hostKeySha256.trim())
+            }
 
             withContext(Dispatchers.IO) {
                 ssh.connect(profile.host, profile.port)
+            }
+
+            if (profile.hostKeySha256.isBlank()) {
+                val fingerprint = discoveredFingerprint
+                    ?: throw IllegalStateException("Server host key fingerprint could not be read.")
+                send(CommandEvent.HostKeyTrustRequired(fingerprint))
+                return@channelFlow
+            }
+
+            withContext(Dispatchers.IO) {
                 when (profile.authMode) {
                     AuthMode.PASSWORD -> ssh.authPassword(profile.username, secret)
                     AuthMode.PRIVATE_KEY -> {
@@ -69,10 +94,5 @@ class SshjCommandExecutor : SshCommandExecutor {
             if (count <= 0) break
             onChunk(buffer.decodeToString(0, count))
         }
-    }
-
-    private fun normalizeFingerprint(value: String): String {
-        val normalized = value.trim()
-        return if (normalized.startsWith("SHA256:")) normalized else "SHA256:$normalized"
     }
 }
