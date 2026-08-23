@@ -4,7 +4,11 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import de.fgna.pocketdev.data.ProjectConfigRepository
 import de.fgna.pocketdev.data.SshProfileRepository
+import de.fgna.pocketdev.project.ProjectAction
+import de.fgna.pocketdev.project.ProjectCommandBuilder
+import de.fgna.pocketdev.project.ProjectConfig
 import de.fgna.pocketdev.ssh.AuthMode
 import de.fgna.pocketdev.ssh.CommandEvent
 import de.fgna.pocketdev.ssh.CommandStateReducer
@@ -25,11 +29,21 @@ data class ProfileEditorState(
     val secret: String = "",
 )
 
+data class ProjectEditorState(
+    val name: String = "",
+    val remotePath: String = "",
+    val testCommand: String = "./gradlew test",
+    val buildCommand: String = "./gradlew assembleDebug",
+)
+
 data class PocketDevState(
     val profile: SshProfile? = null,
     val hasStoredSecret: Boolean = false,
     val editorOpen: Boolean = false,
     val editor: ProfileEditorState = ProfileEditorState(),
+    val project: ProjectConfig? = null,
+    val projectEditorOpen: Boolean = false,
+    val projectEditor: ProjectEditorState = ProjectEditorState(),
     val pendingHostKeyFingerprint: String? = null,
     val command: CommandUiState = CommandUiState(),
 )
@@ -39,6 +53,7 @@ class PocketDevViewModel(
     private val savedStateHandle: SavedStateHandle,
 ) : AndroidViewModel(application) {
     private val repository = SshProfileRepository(application)
+    private val projectRepository = ProjectConfigRepository(application)
     private val executor = SshjCommandExecutor()
 
     private val _state = MutableStateFlow(loadInitialState())
@@ -89,6 +104,51 @@ class PocketDevViewModel(
                 editor = editor.copy(secret = ""),
             )
         }
+    }
+
+    fun openProjectEditor() {
+        val current = _state.value.project
+        updateState {
+            it.copy(
+                projectEditorOpen = true,
+                projectEditor = if (current == null) ProjectEditorState() else ProjectEditorState(
+                    name = current.name,
+                    remotePath = current.remotePath,
+                    testCommand = current.testCommand,
+                    buildCommand = current.buildCommand,
+                ),
+            )
+        }
+    }
+
+    fun closeProjectEditor() = updateState { it.copy(projectEditorOpen = false) }
+
+    fun updateProjectEditor(transform: (ProjectEditorState) -> ProjectEditorState) =
+        updateState { it.copy(projectEditor = transform(it.projectEditor)) }
+
+    fun saveProjectEditor() {
+        val editor = _state.value.projectEditor
+        val project = ProjectConfig(
+            name = editor.name.trim(),
+            remotePath = editor.remotePath.trim(),
+            testCommand = editor.testCommand.trim(),
+            buildCommand = editor.buildCommand.trim(),
+        )
+        projectRepository.save(project)
+        updateState { it.copy(project = project, projectEditorOpen = false) }
+    }
+
+    fun prepareProjectAction(action: ProjectAction): Boolean {
+        val project = _state.value.project ?: return false
+        val command = runCatching { ProjectCommandBuilder.command(project, action) }
+            .getOrElse { error ->
+                updateState {
+                    it.copy(command = it.command.copy(connectionError = error.message ?: "Project action is not configured."))
+                }
+                return false
+            }
+        setCommand(command)
+        return true
     }
 
     fun trustPendingHostKey() {
@@ -173,6 +233,7 @@ class PocketDevViewModel(
         return PocketDevState(
             profile = stored?.profile,
             hasStoredSecret = stored?.hasSecret == true,
+            project = projectRepository.load(),
             command = restoreCommandState(),
         )
     }
