@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import de.fgna.pocketdev.project.ProjectAction
 import de.fgna.pocketdev.ssh.AuthMode
 
 class MainActivity : ComponentActivity() {
@@ -75,12 +76,17 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
             vm.runCommand()
         }
     }
+    val runProjectAction: (ProjectAction) -> Unit = { action ->
+        if (vm.prepareProjectAction(action)) runWithLanPermission()
+    }
 
     MaterialTheme(colorScheme = lightColorScheme()) {
         Surface(modifier = Modifier.fillMaxSize()) {
             PocketDevHome(
                 state = state,
                 onConfigure = vm::openEditor,
+                onConfigureProject = vm::openProjectEditor,
+                onProjectAction = runProjectAction,
                 onCommandChange = vm::setCommand,
                 onRun = runWithLanPermission,
                 onCopy = { text -> copyText(context, text) },
@@ -94,6 +100,15 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
             onChange = vm::updateEditor,
             onDismiss = vm::closeEditor,
             onSave = vm::saveEditor,
+        )
+    }
+
+    if (state.projectEditorOpen) {
+        ProjectDialog(
+            state = state.projectEditor,
+            onChange = vm::updateProjectEditor,
+            onDismiss = vm::closeProjectEditor,
+            onSave = vm::saveProjectEditor,
         )
     }
 
@@ -123,12 +138,15 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
 private fun PocketDevHome(
     state: PocketDevState,
     onConfigure: () -> Unit,
+    onConfigureProject: () -> Unit,
+    onProjectAction: (ProjectAction) -> Unit,
     onCommandChange: (String) -> Unit,
     onRun: () -> Unit,
     onCopy: (String) -> Unit,
 ) {
     val scroll = rememberScrollState()
     val profile = state.profile
+    val project = state.project
     val execution = state.command
 
     Column(
@@ -149,6 +167,24 @@ private fun PocketDevHome(
                     Text(if (state.hasStoredSecret) "Authentication configured" else "Authentication secret missing")
                 }
                 Button(onClick = onConfigure) { Text(if (profile == null) "Configure" else "Edit") }
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Project", style = MaterialTheme.typography.titleMedium)
+                if (project == null) {
+                    Text("Not configured")
+                } else {
+                    Text(project.name)
+                    Text(project.remotePath, style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { onProjectAction(ProjectAction.GIT_STATUS) }, enabled = !execution.running) { Text("Git status") }
+                        OutlinedButton(onClick = { onProjectAction(ProjectAction.TEST) }, enabled = !execution.running && project.testCommand.isNotBlank()) { Text("Test") }
+                        OutlinedButton(onClick = { onProjectAction(ProjectAction.BUILD) }, enabled = !execution.running && project.buildCommand.isNotBlank()) { Text("Build") }
+                    }
+                }
+                Button(onClick = onConfigureProject) { Text(if (project == null) "Configure project" else "Edit project") }
             }
         }
 
@@ -188,6 +224,31 @@ private fun PocketDevHome(
             }
         }
     }
+}
+
+@Composable
+private fun ProjectDialog(
+    state: ProjectEditorState,
+    onChange: ((ProjectEditorState) -> ProjectEditorState) -> Unit,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Project") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = state.name, onValueChange = { value -> onChange { it.copy(name = value) } }, label = { Text("Name") }, singleLine = true)
+                OutlinedTextField(value = state.remotePath, onValueChange = { value -> onChange { it.copy(remotePath = value) } }, label = { Text("Remote path") }, supportingText = { Text("Absolute directory on the SSH server, e.g. /home/freya/Projects/my-taskOS") })
+                OutlinedTextField(value = state.testCommand, onValueChange = { value -> onChange { it.copy(testCommand = value) } }, label = { Text("Test command") }, singleLine = true)
+                OutlinedTextField(value = state.buildCommand, onValueChange = { value -> onChange { it.copy(buildCommand = value) } }, label = { Text("Build command") }, singleLine = true)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onSave, enabled = state.name.isNotBlank() && state.remotePath.isNotBlank()) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
