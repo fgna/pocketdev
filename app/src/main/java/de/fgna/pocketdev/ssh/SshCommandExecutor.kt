@@ -1,6 +1,5 @@
 package de.fgna.pocketdev.ssh
 
-import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
@@ -8,7 +7,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.schmizz.sshj.SSHClient
 import java.io.InputStream
-import java.security.MessageDigest
 
 interface SshCommandExecutor {
     fun execute(profile: SshProfile, secret: String, command: String): Flow<CommandEvent>
@@ -20,11 +18,7 @@ class SshjCommandExecutor : SshCommandExecutor {
         send(CommandEvent.Connecting)
 
         try {
-            ssh.addHostKeyVerifier { hostname, port, key ->
-                hostname == profile.host &&
-                    port == profile.port &&
-                    sha256Fingerprint(key.encoded) == normalizeFingerprint(profile.hostKeySha256)
-            }
+            ssh.addHostKeyVerifier(normalizeFingerprint(profile.hostKeySha256))
 
             withContext(Dispatchers.IO) {
                 ssh.connect(profile.host, profile.port)
@@ -77,11 +71,8 @@ class SshjCommandExecutor : SshCommandExecutor {
         }
     }
 
-    private fun sha256Fingerprint(encodedKey: ByteArray): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(encodedKey)
-        return Base64.encodeToString(digest, Base64.NO_WRAP or Base64.NO_PADDING)
+    private fun normalizeFingerprint(value: String): String {
+        val normalized = value.trim()
+        return if (normalized.startsWith("SHA256:")) normalized else "SHA256:$normalized"
     }
-
-    private fun normalizeFingerprint(value: String): String =
-        value.trim().removePrefix("SHA256:")
 }
