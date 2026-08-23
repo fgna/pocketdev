@@ -106,21 +106,14 @@ class SshjCommandExecutor : SshCommandExecutor {
 
     private fun createAndroidCompatibleClient(): SSHClient {
         val config = DefaultSecurityProviderConfig().apply {
-            // Android Conscrypt Ed25519 keys currently trigger SSHJ's
-            // "Don't know how to encode key: OpenSslEdDsaPublicKey" path.
-            // Prefer modern ECDSA/RSA host keys instead of weakening host verification.
+            // SSHJ 0.40.0 is not compatible with Android Conscrypt's Ed25519
+            // public-key representation and also asks Android for KeyFactory("ECDSA").
+            // Restrict host-key negotiation to modern RSA-SHA2 algorithms, which
+            // Android handles through the standard RSA KeyFactory.
             setKeyAlgorithms(
                 listOf(
-                    KeyAlgorithms.ECDSASHANistp521CertV01(),
-                    KeyAlgorithms.ECDSASHANistp521(),
-                    KeyAlgorithms.ECDSASHANistp384CertV01(),
-                    KeyAlgorithms.ECDSASHANistp384(),
-                    KeyAlgorithms.ECDSASHANistp256CertV01(),
-                    KeyAlgorithms.ECDSASHANistp256(),
                     KeyAlgorithms.RSASHA512(),
                     KeyAlgorithms.RSASHA256(),
-                    KeyAlgorithms.SSHRSACertV01(),
-                    KeyAlgorithms.SSHRSA(),
                 ),
             )
         }
