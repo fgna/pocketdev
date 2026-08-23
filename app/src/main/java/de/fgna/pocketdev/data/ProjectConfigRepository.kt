@@ -106,7 +106,7 @@ internal object ProjectConfigCodec {
             project.testCommand,
             project.buildCommand,
             project.githubRepository,
-        ).joinToString("|")(::encodeField)
+        ).joinToString("|", transform = ::encodeField)
     }
 
     fun decode(value: String): List<ProjectConfig> = value
