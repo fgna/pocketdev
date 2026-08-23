@@ -14,6 +14,7 @@ class ProjectConfigRepository(context: Context) {
             remotePath = remotePath,
             testCommand = prefs.getString("testCommand", "").orEmpty(),
             buildCommand = prefs.getString("buildCommand", "").orEmpty(),
+            githubRepository = prefs.getString("githubRepository", "").orEmpty(),
         )
     }
 
@@ -23,6 +24,7 @@ class ProjectConfigRepository(context: Context) {
             .putString("remotePath", project.remotePath)
             .putString("testCommand", project.testCommand)
             .putString("buildCommand", project.buildCommand)
+            .putString("githubRepository", project.githubRepository)
             .apply()
     }
 }
