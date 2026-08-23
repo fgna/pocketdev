@@ -6,14 +6,14 @@ plugins {
 
 android {
     namespace = "de.fgna.llmbench"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "de.fgna.llmbench"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -31,6 +31,14 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    packaging {
+        resources.excludes += setOf(
+            "/META-INF/AL2.0",
+            "/META-INF/LGPL2.1",
+            "/META-INF/versions/9/OSGI-INF/MANIFEST.MF",
+        )
+    }
 }
 
 dependencies {
@@ -44,10 +52,10 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.11.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.json:json:20240303")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
 }
