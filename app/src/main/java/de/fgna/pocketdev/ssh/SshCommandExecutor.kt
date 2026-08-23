@@ -1,5 +1,6 @@
 package de.fgna.pocketdev.ssh
 
+import com.hierynomus.sshj.key.KeyAlgorithms
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
@@ -29,7 +30,7 @@ class SshjCommandExecutor : SshCommandExecutor {
             val failures = mutableListOf<String>()
 
             for (target in targets) {
-                val candidate = SSHClient(DefaultSecurityProviderConfig())
+                val candidate = createAndroidCompatibleClient()
                 configureHostKeyVerifier(candidate, profile) { fingerprint ->
                     discoveredFingerprint = fingerprint
                 }
@@ -101,6 +102,29 @@ class SshjCommandExecutor : SshCommandExecutor {
                 }
             }
         }
+    }
+
+    private fun createAndroidCompatibleClient(): SSHClient {
+        val config = DefaultSecurityProviderConfig().apply {
+            // Android Conscrypt Ed25519 keys currently trigger SSHJ's
+            // "Don't know how to encode key: OpenSslEdDsaPublicKey" path.
+            // Prefer modern ECDSA/RSA host keys instead of weakening host verification.
+            setKeyAlgorithms(
+                listOf(
+                    KeyAlgorithms.ECDSASHANistp521CertV01(),
+                    KeyAlgorithms.ECDSASHANistp521(),
+                    KeyAlgorithms.ECDSASHANistp384CertV01(),
+                    KeyAlgorithms.ECDSASHANistp384(),
+                    KeyAlgorithms.ECDSASHANistp256CertV01(),
+                    KeyAlgorithms.ECDSASHANistp256(),
+                    KeyAlgorithms.RSASHA512(),
+                    KeyAlgorithms.RSASHA256(),
+                    KeyAlgorithms.SSHRSACertV01(),
+                    KeyAlgorithms.SSHRSA(),
+                ),
+            )
+        }
+        return SSHClient(config)
     }
 
     private fun configureHostKeyVerifier(
