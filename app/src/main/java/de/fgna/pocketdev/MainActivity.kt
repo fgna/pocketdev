@@ -66,6 +66,27 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
             onSave = vm::saveEditor,
         )
     }
+
+    state.pendingHostKeyFingerprint?.let { fingerprint ->
+        AlertDialog(
+            onDismissRequest = vm::rejectPendingHostKey,
+            title = { Text("Trust this server?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("This is the first connection to this SSH server. PocketDev has not sent your password yet.")
+                    Text("Server fingerprint:")
+                    Text(fingerprint, style = MaterialTheme.typography.bodySmall)
+                    Text("Only trust it if this is the server you intended to connect to. PocketDev will remember this fingerprint and reject future changes.")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = vm::trustPendingHostKey) { Text("Trust and connect") }
+            },
+            dismissButton = {
+                TextButton(onClick = vm::rejectPendingHostKey) { Text("Cancel") }
+            },
+        )
+    }
 }
 
 @Composable
@@ -81,31 +102,23 @@ private fun PocketDevHome(
     val execution = state.command
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(scroll)
-            .padding(20.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(scroll).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("PocketDev", style = MaterialTheme.typography.headlineMedium)
         Text("Mobile control surface for a remote development server")
 
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("SSH server", style = MaterialTheme.typography.titleMedium)
                 if (profile == null) {
                     Text("Not configured")
                 } else {
                     Text("${profile.username}@${profile.host}:${profile.port}")
-                    Text("Host key: SHA256:${profile.hostKeySha256.removePrefix("SHA256:")}")
+                    Text(if (profile.hostKeySha256.isBlank()) "Server identity: not trusted yet" else "Server identity: trusted")
                     Text(if (state.hasStoredSecret) "Authentication configured" else "Authentication secret missing")
                 }
-                Button(onClick = onConfigure) {
-                    Text(if (profile == null) "Configure" else "Edit")
-                }
+                Button(onClick = onConfigure) { Text(if (profile == null) "Configure" else "Edit") }
             }
         }
 
@@ -119,59 +132,28 @@ private fun PocketDevHome(
         )
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { onCommandChange("pwd") }, enabled = !execution.running) {
-                Text("pwd")
-            }
-            OutlinedButton(
-                onClick = { onCommandChange("git status --short --branch") },
-                enabled = !execution.running,
-            ) {
-                Text("git status")
-            }
+            OutlinedButton(onClick = { onCommandChange("pwd") }, enabled = !execution.running) { Text("pwd") }
+            OutlinedButton(onClick = { onCommandChange("git status --short --branch") }, enabled = !execution.running) { Text("git status") }
         }
 
         Button(
             onClick = onRun,
             enabled = profile != null && state.hasStoredSecret && execution.command.isNotBlank() && !execution.running,
-        ) {
-            Text(if (execution.running) "Running…" else "Run")
-        }
+        ) { Text(if (execution.running) "Running…" else "Run") }
 
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Output", style = MaterialTheme.typography.titleMedium)
-
                 when {
                     execution.running -> Text("Running ${execution.command}")
                     execution.connectionError != null -> Text("Connection error: ${execution.connectionError}")
-                    execution.exitCode != null -> Text(
-                        if (execution.exitCode == 0) "Completed successfully (exit 0)"
-                        else "Remote command failed (exit ${execution.exitCode})",
-                    )
+                    execution.exitCode != null -> Text(if (execution.exitCode == 0) "Completed successfully (exit 0)" else "Remote command failed (exit ${execution.exitCode})")
                     else -> Text("Ready")
                 }
-
-                Text(
-                    text = execution.combinedOutput.ifBlank { "No output yet." },
-                    style = MaterialTheme.typography.bodySmall,
-                )
-
+                Text(execution.combinedOutput.ifBlank { "No output yet." }, style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = { onCopy(execution.command) },
-                        enabled = execution.command.isNotBlank(),
-                    ) {
-                        Text("Copy command")
-                    }
-                    OutlinedButton(
-                        onClick = { onCopy(execution.combinedOutput) },
-                        enabled = execution.combinedOutput.isNotBlank(),
-                    ) {
-                        Text("Copy output")
-                    }
+                    OutlinedButton(onClick = { onCopy(execution.command) }, enabled = execution.command.isNotBlank()) { Text("Copy command") }
+                    OutlinedButton(onClick = { onCopy(execution.combinedOutput) }, enabled = execution.combinedOutput.isNotBlank()) { Text("Copy output") }
                 }
             }
         }
@@ -189,77 +171,31 @@ private fun ProfileDialog(
         onDismissRequest = onDismiss,
         title = { Text("SSH profile") },
         text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedTextField(
-                    value = state.host,
-                    onValueChange = { value -> onChange { it.copy(host = value) } },
-                    label = { Text("Host") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = state.port,
-                    onValueChange = { value -> onChange { it.copy(port = value.filter(Char::isDigit)) } },
-                    label = { Text("Port") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = state.username,
-                    onValueChange = { value -> onChange { it.copy(username = value) } },
-                    label = { Text("Username") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = state.hostKeySha256,
-                    onValueChange = { value -> onChange { it.copy(hostKeySha256 = value) } },
-                    label = { Text("Host key SHA256 fingerprint") },
-                    supportingText = { Text("Example: SHA256:abc… or abc…") },
-                    singleLine = true,
-                )
+            Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = state.host, onValueChange = { value -> onChange { it.copy(host = value) } }, label = { Text("Host") }, singleLine = true)
+                OutlinedTextField(value = state.port, onValueChange = { value -> onChange { it.copy(port = value.filter(Char::isDigit)) } }, label = { Text("Port") }, singleLine = true)
+                OutlinedTextField(value = state.username, onValueChange = { value -> onChange { it.copy(username = value) } }, label = { Text("Username") }, singleLine = true)
+                Text("On the first connection PocketDev will show the server fingerprint for confirmation. You do not need to enter it manually.", style = MaterialTheme.typography.bodySmall)
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = { onChange { it.copy(authMode = AuthMode.PASSWORD) } },
-                        enabled = state.authMode != AuthMode.PASSWORD,
-                    ) { Text("Password") }
-                    OutlinedButton(
-                        onClick = { onChange { it.copy(authMode = AuthMode.PRIVATE_KEY) } },
-                        enabled = state.authMode != AuthMode.PRIVATE_KEY,
-                    ) { Text("Private key") }
+                    OutlinedButton(onClick = { onChange { it.copy(authMode = AuthMode.PASSWORD) } }, enabled = state.authMode != AuthMode.PASSWORD) { Text("Password") }
+                    OutlinedButton(onClick = { onChange { it.copy(authMode = AuthMode.PRIVATE_KEY) } }, enabled = state.authMode != AuthMode.PRIVATE_KEY) { Text("Private key") }
                 }
 
                 OutlinedTextField(
                     value = state.secret,
                     onValueChange = { value -> onChange { it.copy(secret = value) } },
-                    label = {
-                        Text(if (state.authMode == AuthMode.PASSWORD) "Password" else "Private key (PEM)")
-                    },
-                    visualTransformation = if (state.authMode == AuthMode.PASSWORD) {
-                        PasswordVisualTransformation()
-                    } else {
-                        androidx.compose.ui.text.input.VisualTransformation.None
-                    },
+                    label = { Text(if (state.authMode == AuthMode.PASSWORD) "Password" else "Private key (PEM)") },
+                    visualTransformation = if (state.authMode == AuthMode.PASSWORD) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
                     supportingText = { Text("Leave empty to keep the existing stored secret.") },
                     minLines = if (state.authMode == AuthMode.PRIVATE_KEY) 4 else 1,
                 )
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = onSave,
-                enabled = state.host.isNotBlank() &&
-                    state.username.isNotBlank() &&
-                    state.hostKeySha256.isNotBlank() &&
-                    state.port.toIntOrNull() != null,
-            ) {
-                Text("Save")
-            }
+            TextButton(onClick = onSave, enabled = state.host.isNotBlank() && state.username.isNotBlank() && state.port.toIntOrNull() != null) { Text("Save") }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
