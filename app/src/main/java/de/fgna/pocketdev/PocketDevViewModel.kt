@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import de.fgna.pocketdev.data.SshProfileRepository
 import de.fgna.pocketdev.ssh.AuthMode
+import de.fgna.pocketdev.ssh.CommandEvent
 import de.fgna.pocketdev.ssh.CommandStateReducer
 import de.fgna.pocketdev.ssh.CommandUiState
 import de.fgna.pocketdev.ssh.SshProfile
@@ -19,7 +20,6 @@ data class ProfileEditorState(
     val host: String = "",
     val port: String = "22",
     val username: String = "",
-    val hostKeySha256: String = "",
     val authMode: AuthMode = AuthMode.PASSWORD,
     val secret: String = "",
 )
@@ -29,6 +29,7 @@ data class PocketDevState(
     val hasStoredSecret: Boolean = false,
     val editorOpen: Boolean = false,
     val editor: ProfileEditorState = ProfileEditorState(),
+    val pendingHostKeyFingerprint: String? = null,
     val command: CommandUiState = CommandUiState(),
 )
 
@@ -48,7 +49,6 @@ class PocketDevViewModel(application: Application) : AndroidViewModel(applicatio
                     host = current.host,
                     port = current.port.toString(),
                     username = current.username,
-                    hostKeySha256 = current.hostKeySha256,
                     authMode = current.authMode,
                 ),
             )
@@ -62,12 +62,14 @@ class PocketDevViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun saveEditor() {
         val editor = _state.value.editor
-        val port = editor.port.toIntOrNull() ?: 22
+        val existingFingerprint = _state.value.profile
+            ?.takeIf { it.host == editor.host.trim() && it.port == (editor.port.toIntOrNull() ?: 22) }
+            ?.hostKeySha256.orEmpty()
         val profile = SshProfile(
             host = editor.host.trim(),
-            port = port,
+            port = editor.port.toIntOrNull() ?: 22,
             username = editor.username.trim(),
-            hostKeySha256 = editor.hostKeySha256.trim(),
+            hostKeySha256 = existingFingerprint,
             authMode = editor.authMode,
         )
         repository.save(profile, editor.secret.ifBlank { null })
@@ -81,6 +83,17 @@ class PocketDevViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    fun trustPendingHostKey() {
+        val fingerprint = _state.value.pendingHostKeyFingerprint ?: return
+        val profile = _state.value.profile ?: return
+        val trusted = profile.copy(hostKeySha256 = fingerprint)
+        repository.save(trusted, null)
+        _state.update { it.copy(profile = trusted, pendingHostKeyFingerprint = null) }
+        runCommand()
+    }
+
+    fun rejectPendingHostKey() = _state.update { it.copy(pendingHostKeyFingerprint = null) }
+
     fun setCommand(command: String) = _state.update {
         it.copy(command = it.command.copy(command = command))
     }
@@ -89,30 +102,22 @@ class PocketDevViewModel(application: Application) : AndroidViewModel(applicatio
         val profile = _state.value.profile ?: return
         val secret = repository.loadSecret()
         if (secret.isNullOrBlank()) {
-            _state.update {
-                it.copy(command = it.command.copy(connectionError = "No authentication secret is stored."))
-            }
+            _state.update { it.copy(command = it.command.copy(connectionError = "No authentication secret is stored.")) }
             return
         }
         val commandText = _state.value.command.command.trim()
         if (commandText.isEmpty()) return
 
         _state.update {
-            it.copy(
-                command = it.command.copy(
-                    running = true,
-                    stdout = "",
-                    stderr = "",
-                    exitCode = null,
-                    connectionError = null,
-                ),
-            )
+            it.copy(command = it.command.copy(running = true, stdout = "", stderr = "", exitCode = null, connectionError = null))
         }
 
         viewModelScope.launch {
             executor.execute(profile, secret, commandText).collect { event ->
-                _state.update { state ->
-                    state.copy(command = CommandStateReducer.reduce(state.command, event))
+                if (event is CommandEvent.HostKeyTrustRequired) {
+                    _state.update { it.copy(pendingHostKeyFingerprint = event.fingerprint, command = it.command.copy(running = false)) }
+                } else {
+                    _state.update { state -> state.copy(command = CommandStateReducer.reduce(state.command, event)) }
                 }
             }
         }
