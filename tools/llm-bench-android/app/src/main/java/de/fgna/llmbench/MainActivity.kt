@@ -3,14 +3,14 @@ package de.fgna.llmbench
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -50,70 +50,80 @@ class MainActivity : ComponentActivity() {
 private fun BenchmarkScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val client = remember { OpenAiBenchmarkClient() }
 
-    var baseUrl by remember { mutableStateOf("http://127.0.0.1:8080") }
-    var models by remember { mutableStateOf("qwen3-1.7b,qwen3.5-2b") }
-    var apiKey by remember { mutableStateOf("") }
+    var modelReady by remember { mutableStateOf(LocalModelStore.readyFile(context) != null) }
+    var modelLabel by remember { mutableStateOf("Lokales LiteRT-LM Modell") }
+    var modelInfo by remember {
+        mutableStateOf(
+            LocalModelStore.readyFile(context)?.let { "Modell vorhanden · ${formatMb(it.length())} MB" }
+                ?: "Kein Modell importiert",
+        )
+    }
     var running by remember { mutableStateOf(false) }
     var completed by remember { mutableStateOf(0) }
     var total by remember { mutableStateOf(0) }
     var results by remember { mutableStateOf(emptyList<BenchmarkResult>()) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                running = true
+                error = null
+                modelInfo = "Modell wird importiert …"
+                runCatching { LocalModelStore.import(context, uri) }
+                    .onSuccess { bytes ->
+                        modelReady = true
+                        modelInfo = "Modell importiert · ${formatMb(bytes)} MB"
+                        uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() }?.let { modelLabel = it }
+                        results = emptyList()
+                    }
+                    .onFailure { t ->
+                        modelReady = false
+                        modelInfo = "Kein Modell importiert"
+                        error = t.message ?: t::class.java.simpleName
+                    }
+                running = false
+            }
+        }
+    }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text("LLM Bench", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Text("Identische Prompts, identische API, vergleichbare Messwerte auf diesem Gerät.")
+        Text("Direkter On-Device-Benchmark für .litertlm-Modelle mit derselben LiteRT-LM-Runtime wie TaskOS.")
 
+        Text(modelInfo)
         OutlinedTextField(
-            value = baseUrl,
-            onValueChange = { baseUrl = it },
+            value = modelLabel,
+            onValueChange = { modelLabel = it },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("OpenAI-kompatible Base URL") },
+            label = { Text("Modellname für Ergebnis/Export") },
+            enabled = !running,
             singleLine = true,
-            enabled = !running,
-        )
-        OutlinedTextField(
-            value = models,
-            onValueChange = { models = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Modelle, durch Komma getrennt") },
-            supportingText = { Text("Beispiel: gemma,qwen3-1.7b,qwen3.5-2b") },
-            enabled = !running,
-        )
-        OutlinedTextField(
-            value = apiKey,
-            onValueChange = { apiKey = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("API-Key, optional") },
-            singleLine = true,
-            enabled = !running,
         )
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(enabled = !running, onClick = { picker.launch("*/*") }) {
+                Text(".litertlm importieren")
+            }
             Button(
-                enabled = !running && models.split(',').any { it.isNotBlank() },
+                enabled = modelReady && !running,
                 onClick = {
-                    val selectedModels = models.split(',').map { it.trim() }.filter { it.isNotEmpty() }
-                    total = selectedModels.size * BenchmarkSuite.defaultPrompts.size
+                    val model = LocalModelStore.readyFile(context) ?: return@Button
+                    total = BenchmarkSuite.defaultPrompts.size
                     completed = 0
                     results = emptyList()
+                    error = null
                     running = true
                     scope.launch {
                         try {
-                            selectedModels.forEach { model ->
-                                BenchmarkSuite.defaultPrompts.forEach { prompt ->
-                                    val result = client.run(
-                                        profile = BenchmarkProfile(baseUrl = baseUrl, model = model, apiKey = apiKey),
-                                        prompt = prompt,
-                                    )
-                                    results = results + result
-                                    completed += 1
-                                }
+                            val engine = LiteRtBenchmarkEngine(model.absolutePath, modelLabel.ifBlank { "Unbenanntes Modell" })
+                            BenchmarkSuite.defaultPrompts.forEach { prompt ->
+                                results = results + engine.run(prompt)
+                                completed += 1
                             }
                         } finally {
                             running = false
@@ -123,27 +133,27 @@ private fun BenchmarkScreen() {
             ) {
                 Text(if (running) "Läuft …" else "Benchmark starten")
             }
+        }
 
-            Button(
-                enabled = results.isNotEmpty() && !running,
-                onClick = {
-                    val csv = BenchmarkCsv.export(results)
-                    val intent = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/csv"
-                        putExtra(Intent.EXTRA_SUBJECT, "LLM Bench Ergebnisse")
-                        putExtra(Intent.EXTRA_TEXT, csv)
-                    }
-                    context.startActivity(Intent.createChooser(intent, "CSV exportieren"))
-                },
-            ) {
-                Text("CSV exportieren")
-            }
+        Button(
+            enabled = results.isNotEmpty() && !running,
+            onClick = {
+                val csv = BenchmarkCsv.export(results)
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/csv"
+                    putExtra(Intent.EXTRA_SUBJECT, "LLM Bench Ergebnisse")
+                    putExtra(Intent.EXTRA_TEXT, csv)
+                }
+                context.startActivity(Intent.createChooser(intent, "CSV exportieren"))
+            },
+        ) {
+            Text("CSV exportieren")
         }
 
         Text("Fortschritt: $completed / $total")
-        Text("Tokens/s nutzt API-Usage, wenn geliefert, sonst eine gekennzeichnete Schätzung.", style = MaterialTheme.typography.bodySmall)
-
-        Spacer(Modifier.height(2.dp))
+        Text("Erster Lauf ist cold, weitere Prompts nutzen das geladene Modell warm. GPU wird bevorzugt; bei Fehlern erfolgt CPU-Fallback.", style = MaterialTheme.typography.bodySmall)
+        Text("Tokenzahl und tok/s sind derzeit tokenizer-unabhängige Schätzwerte.", style = MaterialTheme.typography.bodySmall)
+        error?.let { Text("Fehler: $it", color = MaterialTheme.colorScheme.error) }
 
         LazyColumn(
             modifier = Modifier.fillMaxWidth(),
@@ -170,8 +180,10 @@ private fun ResultCard(result: BenchmarkResult) {
             if (result.error != null) {
                 Text("Fehler: ${result.error}", color = MaterialTheme.colorScheme.error)
             } else {
-                Text(result.output.take(500))
+                Text(result.output.take(700))
             }
         }
     }
 }
+
+private fun formatMb(bytes: Long): String = String.format(Locale.US, "%.1f", bytes / 1024.0 / 1024.0)
