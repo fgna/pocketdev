@@ -2,6 +2,7 @@ package de.fgna.pocketdev
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import de.fgna.pocketdev.data.SshProfileRepository
 import de.fgna.pocketdev.ssh.AuthMode
@@ -33,16 +34,23 @@ data class PocketDevState(
     val command: CommandUiState = CommandUiState(),
 )
 
-class PocketDevViewModel(application: Application) : AndroidViewModel(application) {
+class PocketDevViewModel(
+    application: Application,
+    private val savedStateHandle: SavedStateHandle,
+) : AndroidViewModel(application) {
     private val repository = SshProfileRepository(application)
     private val executor = SshjCommandExecutor()
 
     private val _state = MutableStateFlow(loadInitialState())
     val state: StateFlow<PocketDevState> = _state.asStateFlow()
 
+    init {
+        persistCommandState(_state.value.command)
+    }
+
     fun openEditor() {
         val current = _state.value.profile
-        _state.update {
+        updateState {
             it.copy(
                 editorOpen = true,
                 editor = if (current == null) ProfileEditorState() else ProfileEditorState(
@@ -55,10 +63,10 @@ class PocketDevViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun closeEditor() = _state.update { it.copy(editorOpen = false) }
+    fun closeEditor() = updateState { it.copy(editorOpen = false) }
 
     fun updateEditor(transform: (ProfileEditorState) -> ProfileEditorState) =
-        _state.update { it.copy(editor = transform(it.editor)) }
+        updateState { it.copy(editor = transform(it.editor)) }
 
     fun saveEditor() {
         val editor = _state.value.editor
@@ -73,7 +81,7 @@ class PocketDevViewModel(application: Application) : AndroidViewModel(applicatio
             authMode = editor.authMode,
         )
         repository.save(profile, editor.secret.ifBlank { null })
-        _state.update {
+        updateState {
             it.copy(
                 profile = profile,
                 hasStoredSecret = !repository.loadSecret().isNullOrBlank(),
@@ -88,13 +96,13 @@ class PocketDevViewModel(application: Application) : AndroidViewModel(applicatio
         val profile = _state.value.profile ?: return
         val trusted = profile.copy(hostKeySha256 = fingerprint)
         repository.save(trusted, null)
-        _state.update { it.copy(profile = trusted, pendingHostKeyFingerprint = null) }
+        updateState { it.copy(profile = trusted, pendingHostKeyFingerprint = null) }
         runCommand()
     }
 
-    fun rejectPendingHostKey() = _state.update { it.copy(pendingHostKeyFingerprint = null) }
+    fun rejectPendingHostKey() = updateState { it.copy(pendingHostKeyFingerprint = null) }
 
-    fun setCommand(command: String) = _state.update {
+    fun setCommand(command: String) = updateState {
         it.copy(command = it.command.copy(command = command))
     }
 
@@ -102,29 +110,79 @@ class PocketDevViewModel(application: Application) : AndroidViewModel(applicatio
         val profile = _state.value.profile ?: return
         val secret = repository.loadSecret()
         if (secret.isNullOrBlank()) {
-            _state.update { it.copy(command = it.command.copy(connectionError = "No authentication secret is stored.")) }
+            updateState { it.copy(command = it.command.copy(connectionError = "No authentication secret is stored.")) }
             return
         }
         val commandText = _state.value.command.command.trim()
         if (commandText.isEmpty()) return
 
-        _state.update {
+        updateState {
             it.copy(command = it.command.copy(running = true, stdout = "", stderr = "", exitCode = null, connectionError = null))
         }
 
         viewModelScope.launch {
             executor.execute(profile, secret, commandText).collect { event ->
                 if (event is CommandEvent.HostKeyTrustRequired) {
-                    _state.update { it.copy(pendingHostKeyFingerprint = event.fingerprint, command = it.command.copy(running = false)) }
+                    updateState {
+                        it.copy(
+                            pendingHostKeyFingerprint = event.fingerprint,
+                            command = it.command.copy(running = false),
+                        )
+                    }
                 } else {
-                    _state.update { state -> state.copy(command = CommandStateReducer.reduce(state.command, event)) }
+                    updateState { state ->
+                        state.copy(command = CommandStateReducer.reduce(state.command, event))
+                    }
                 }
             }
         }
     }
 
+    private fun updateState(transform: (PocketDevState) -> PocketDevState) {
+        _state.update(transform)
+        persistCommandState(_state.value.command)
+    }
+
+    private fun persistCommandState(command: CommandUiState) {
+        savedStateHandle[KEY_COMMAND] = command.command
+        savedStateHandle[KEY_RUNNING] = command.running
+        savedStateHandle[KEY_STDOUT] = command.stdout
+        savedStateHandle[KEY_STDERR] = command.stderr
+        savedStateHandle[KEY_EXIT_CODE] = command.exitCode
+        savedStateHandle[KEY_CONNECTION_ERROR] = command.connectionError
+    }
+
+    private fun restoreCommandState(): CommandUiState {
+        val wasRunning = savedStateHandle.get<Boolean>(KEY_RUNNING) == true
+        return CommandUiState(
+            command = savedStateHandle.get<String>(KEY_COMMAND) ?: "pwd",
+            running = false,
+            stdout = savedStateHandle.get<String>(KEY_STDOUT).orEmpty(),
+            stderr = savedStateHandle.get<String>(KEY_STDERR).orEmpty(),
+            exitCode = savedStateHandle.get<Int>(KEY_EXIT_CODE),
+            connectionError = if (wasRunning) {
+                "Command was interrupted because PocketDev was stopped while in the background. Run it again to continue."
+            } else {
+                savedStateHandle.get<String>(KEY_CONNECTION_ERROR)
+            },
+        )
+    }
+
     private fun loadInitialState(): PocketDevState {
         val stored = repository.load()
-        return PocketDevState(profile = stored?.profile, hasStoredSecret = stored?.hasSecret == true)
+        return PocketDevState(
+            profile = stored?.profile,
+            hasStoredSecret = stored?.hasSecret == true,
+            command = restoreCommandState(),
+        )
+    }
+
+    private companion object {
+        const val KEY_COMMAND = "command.text"
+        const val KEY_RUNNING = "command.running"
+        const val KEY_STDOUT = "command.stdout"
+        const val KEY_STDERR = "command.stderr"
+        const val KEY_EXIT_CODE = "command.exitCode"
+        const val KEY_CONNECTION_ERROR = "command.connectionError"
     }
 }
