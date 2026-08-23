@@ -38,4 +38,11 @@ class ProjectCommandBuilderTest {
             ProjectCommandBuilder.command(project.copy(testCommand = "   "), ProjectAction.TEST)
         }
     }
+
+    @Test
+    fun relativeProjectPathIsRejected() {
+        assertThrows(IllegalArgumentException::class.java) {
+            ProjectCommandBuilder.command(project.copy(remotePath = "Projects/taskos"), ProjectAction.GIT_STATUS)
+        }
+    }
 }

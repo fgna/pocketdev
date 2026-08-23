@@ -49,6 +49,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import de.fgna.pocketdev.diagnostics.DiagnosticDraftBuilder
 import de.fgna.pocketdev.diagnostics.DiagnosticIssueDraft
 import de.fgna.pocketdev.project.ProjectAction
+import de.fgna.pocketdev.project.ProjectConfig
 import de.fgna.pocketdev.ssh.AuthMode
 import de.fgna.pocketdev.ui.PocketDevCompactMeta
 import de.fgna.pocketdev.ui.PocketDevContextStrip
@@ -70,6 +71,7 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
     var issueDraft by remember { mutableStateOf<DiagnosticIssueDraft?>(null) }
+    var projectSwitcherOpen by remember { mutableStateOf(false) }
 
     val nearbyPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -104,7 +106,7 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
             PocketDevHome(
                 state = state,
                 onConfigure = vm::openEditor,
-                onConfigureProject = vm::openProjectEditor,
+                onProjects = { projectSwitcherOpen = true },
                 onProjectAction = runProjectAction,
                 onDownloadArtifact = vm::downloadLatestApk,
                 onOpenArtifact = { path -> openApk(context, path) },
@@ -130,12 +132,35 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
             )
         }
 
+        if (projectSwitcherOpen) {
+            ProjectSwitcherDialog(
+                projects = state.projects,
+                activeProjectId = state.project?.id,
+                onSelect = { projectId ->
+                    vm.selectProject(projectId)
+                    issueDraft = null
+                    projectSwitcherOpen = false
+                },
+                onNew = {
+                    projectSwitcherOpen = false
+                    vm.openNewProjectEditor()
+                },
+                onEdit = {
+                    projectSwitcherOpen = false
+                    vm.openProjectEditor()
+                },
+                onDismiss = { projectSwitcherOpen = false },
+            )
+        }
+
         if (state.projectEditorOpen) {
             ProjectDialog(
                 state = state.projectEditor,
+                editingExisting = state.projectEditorId != null,
                 onChange = vm::updateProjectEditor,
                 onDismiss = vm::closeProjectEditor,
                 onSave = vm::saveProjectEditor,
+                onDelete = vm::deleteCurrentProject,
             )
         }
 
@@ -179,7 +204,7 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
 private fun PocketDevHome(
     state: PocketDevState,
     onConfigure: () -> Unit,
-    onConfigureProject: () -> Unit,
+    onProjects: () -> Unit,
     onProjectAction: (ProjectAction) -> Unit,
     onDownloadArtifact: () -> Unit,
     onOpenArtifact: (String) -> Unit,
@@ -226,7 +251,7 @@ private fun PocketDevHome(
                         }
                         Spacer(modifier = Modifier.weight(1f))
                         TextButton(onClick = onConfigure) { Text("Server") }
-                        TextButton(onClick = onConfigureProject) { Text("Project") }
+                        TextButton(onClick = onProjects) { Text("Projects") }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
@@ -246,12 +271,21 @@ private fun PocketDevHome(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    PocketDevSectionLabel("Workspace")
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        PocketDevSectionLabel("Workspace", modifier = Modifier.weight(1f))
+                        if (state.projects.size > 1) {
+                            Text(
+                                "${state.projects.size} projects",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                     when {
                         profile == null -> Text("Configure an SSH server to start.", style = MaterialTheme.typography.bodyMedium)
                         project == null -> {
                             PocketDevCompactMeta("Server", "${profile.username}@${profile.host}:${profile.port}")
-                            Text("Configure a remote project to enable one-tap actions.", style = MaterialTheme.typography.bodyMedium)
+                            Text("Add a remote project to enable one-tap actions.", style = MaterialTheme.typography.bodyMedium)
                         }
                         else -> {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -394,15 +428,60 @@ private fun PocketDevHome(
 }
 
 @Composable
-private fun ProjectDialog(
-    state: ProjectEditorState,
-    onChange: ((ProjectEditorState) -> ProjectEditorState) -> Unit,
+private fun ProjectSwitcherDialog(
+    projects: List<ProjectConfig>,
+    activeProjectId: String?,
+    onSelect: (String) -> Unit,
+    onNew: () -> Unit,
+    onEdit: () -> Unit,
     onDismiss: () -> Unit,
-    onSave: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Project") },
+        title = { Text("Projects") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (projects.isEmpty()) {
+                    Text("No projects configured yet.", style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    projects.forEach { project ->
+                        OutlinedButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { onSelect(project.id) },
+                        ) {
+                            Text(if (project.id == activeProjectId) "✓ ${project.name}" else project.name)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onNew) { Text("New") } },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (activeProjectId != null) TextButton(onClick = onEdit) { Text("Edit") }
+                TextButton(onClick = onDismiss) { Text("Close") }
+            }
+        },
+    )
+}
+
+@Composable
+private fun ProjectDialog(
+    state: ProjectEditorState,
+    editingExisting: Boolean,
+    onChange: ((ProjectEditorState) -> ProjectEditorState) -> Unit,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var confirmDelete by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (editingExisting) "Edit project" else "New project") },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = state.name, onValueChange = { value -> onChange { it.copy(name = value) } }, label = { Text("Name") }, singleLine = true)
@@ -419,10 +498,34 @@ private fun ProjectDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onSave, enabled = state.name.isNotBlank() && state.remotePath.isNotBlank()) { Text("Save") }
+            TextButton(
+                onClick = onSave,
+                enabled = state.name.isNotBlank() && state.remotePath.trim().startsWith("/"),
+            ) { Text("Save") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (editingExisting) {
+                    TextButton(onClick = { confirmDelete = true }) {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
     )
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete project?") },
+            text = { Text("This removes the saved PocketDev project configuration. It does not delete the remote repository.") },
+            confirmButton = {
+                TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        )
+    }
 }
 
 @Composable
