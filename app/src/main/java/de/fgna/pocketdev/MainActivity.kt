@@ -375,7 +375,7 @@ private fun PocketDevHome(
                                 },
                             )
                         }
-                        if (execution.exitCode != null && execution.exitCode != 0 && !project?.githubRepository.isNullOrBlank()) {
+                        if (execution.exitCode != null && execution.exitCode != 0) {
                             TextButton(onClick = onIssueDraft) { Text("Issue draft") }
                         }
                         TextButton(
@@ -544,17 +544,22 @@ private fun openApk(context: Context, path: String) {
 private fun openGitHubIssueDraft(context: Context, repository: String, title: String, body: String) {
     val repo = repository.trim()
     if (!Regex("^[^/\\s]+/[^/\\s]+$").matches(repo)) {
-        Toast.makeText(context, "GitHub repository must be owner/name.", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, "Configure the GitHub repository as owner/name first.", Toast.LENGTH_LONG).show()
         return
     }
-    val uri = Uri.parse("https://github.com/$repo/issues/new")
-        .buildUpon()
+    val uri = Uri.Builder()
+        .scheme("https")
+        .authority("github.com")
+        .appendPath(repo.substringBefore('/'))
+        .appendPath(repo.substringAfter('/'))
+        .appendPath("issues")
+        .appendPath("new")
         .appendQueryParameter("title", title)
         .appendQueryParameter("body", body)
         .build()
     val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     runCatching { context.startActivity(intent) }
         .onFailure {
-            Toast.makeText(context, "Android could not open GitHub: ${it.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Could not open GitHub: ${it.message}", Toast.LENGTH_LONG).show()
         }
 }
