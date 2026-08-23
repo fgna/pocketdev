@@ -5,7 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,7 +21,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -35,14 +34,15 @@ class TabbedMainActivity : ComponentActivity() {
             val vm: PocketDevViewModel = viewModel()
             val state by vm.state.collectAsState()
             PocketDevTheme {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    PocketDevApp(vm)
+                Column(modifier = Modifier.fillMaxSize()) {
+                    androidx.compose.foundation.layout.Box(modifier = Modifier.weight(1f)) {
+                        PocketDevApp(vm)
+                    }
                     BottomProjectTabs(
                         projects = state.projects,
                         activeProjectId = state.project?.id,
                         sessions = state.sessions,
                         onSelect = vm::selectProject,
-                        modifier = Modifier.align(Alignment.BottomCenter),
                     )
                 }
             }
@@ -56,17 +56,16 @@ private fun BottomProjectTabs(
     activeProjectId: String?,
     sessions: Map<String, ProjectSessionState>,
     onSelect: (String) -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     if (projects.size < 2) return
 
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 3.dp,
         shadowElevation = 6.dp,
     ) {
-        androidx.compose.foundation.layout.Column {
+        Column {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Row(
                 modifier = Modifier
