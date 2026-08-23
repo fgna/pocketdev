@@ -1,11 +1,17 @@
 package de.fgna.pocketdev
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -45,6 +51,30 @@ class MainActivity : ComponentActivity() {
 fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
+    val nearbyPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            vm.runCommand()
+        } else {
+            Toast.makeText(
+                context,
+                "Nearby devices permission is required for SSH to local-network servers.",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
+
+    val runWithLanPermission = {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            context.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED
+        ) {
+            nearbyPermissionLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
+        } else {
+            vm.runCommand()
+        }
+    }
 
     MaterialTheme(colorScheme = lightColorScheme()) {
         Surface(modifier = Modifier.fillMaxSize()) {
@@ -52,7 +82,7 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                 state = state,
                 onConfigure = vm::openEditor,
                 onCommandChange = vm::setCommand,
-                onRun = vm::runCommand,
+                onRun = runWithLanPermission,
                 onCopy = { text -> copyText(context, text) },
             )
         }
