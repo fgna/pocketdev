@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -37,9 +38,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.fgna.pocketdev.project.ProjectAction
 import de.fgna.pocketdev.ssh.AuthMode
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -87,6 +90,8 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                 onConfigure = vm::openEditor,
                 onConfigureProject = vm::openProjectEditor,
                 onProjectAction = runProjectAction,
+                onDownloadArtifact = vm::downloadLatestApk,
+                onOpenArtifact = { path -> openApk(context, path) },
                 onCommandChange = vm::setCommand,
                 onRun = runWithLanPermission,
                 onCopy = { text -> copyText(context, text) },
@@ -140,6 +145,8 @@ private fun PocketDevHome(
     onConfigure: () -> Unit,
     onConfigureProject: () -> Unit,
     onProjectAction: (ProjectAction) -> Unit,
+    onDownloadArtifact: () -> Unit,
+    onOpenArtifact: (String) -> Unit,
     onCommandChange: (String) -> Unit,
     onRun: () -> Unit,
     onCopy: (String) -> Unit,
@@ -148,6 +155,7 @@ private fun PocketDevHome(
     val profile = state.profile
     val project = state.project
     val execution = state.command
+    val artifact = state.artifact
 
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(scroll).padding(20.dp),
@@ -179,12 +187,37 @@ private fun PocketDevHome(
                     Text(project.name)
                     Text(project.remotePath, style = MaterialTheme.typography.bodySmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { onProjectAction(ProjectAction.GIT_STATUS) }, enabled = !execution.running) { Text("Git status") }
-                        OutlinedButton(onClick = { onProjectAction(ProjectAction.TEST) }, enabled = !execution.running && project.testCommand.isNotBlank()) { Text("Test") }
-                        OutlinedButton(onClick = { onProjectAction(ProjectAction.BUILD) }, enabled = !execution.running && project.buildCommand.isNotBlank()) { Text("Build") }
+                        OutlinedButton(onClick = { onProjectAction(ProjectAction.GIT_STATUS) }, enabled = !execution.running && !artifact.downloading) { Text("Git status") }
+                        OutlinedButton(onClick = { onProjectAction(ProjectAction.TEST) }, enabled = !execution.running && !artifact.downloading && project.testCommand.isNotBlank()) { Text("Test") }
+                        OutlinedButton(onClick = { onProjectAction(ProjectAction.BUILD) }, enabled = !execution.running && !artifact.downloading && project.buildCommand.isNotBlank()) { Text("Build") }
                     }
                 }
                 Button(onClick = onConfigureProject) { Text(if (project == null) "Configure project" else "Edit project") }
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("APK artifact", style = MaterialTheme.typography.titleMedium)
+                when {
+                    artifact.downloading -> Text("Finding and downloading latest APK…")
+                    artifact.error != null -> Text("Artifact error: ${artifact.error}")
+                    artifact.localPath != null -> {
+                        Text("Downloaded: ${File(artifact.localPath).name}")
+                        artifact.remotePath?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    }
+                    else -> Text("No APK downloaded yet.")
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = onDownloadArtifact,
+                        enabled = project != null && profile != null && profile.hostKeySha256.isNotBlank() && state.hasStoredSecret && !execution.running && !artifact.downloading,
+                    ) { Text(if (artifact.downloading) "Downloading…" else "Download latest APK") }
+                    OutlinedButton(
+                        onClick = { artifact.localPath?.let(onOpenArtifact) },
+                        enabled = artifact.localPath != null && !artifact.downloading,
+                    ) { Text("Open APK") }
+                }
             }
         }
 
@@ -194,17 +227,17 @@ private fun PocketDevHome(
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Command") },
             singleLine = true,
-            enabled = !execution.running,
+            enabled = !execution.running && !artifact.downloading,
         )
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { onCommandChange("pwd") }, enabled = !execution.running) { Text("pwd") }
-            OutlinedButton(onClick = { onCommandChange("git status --short --branch") }, enabled = !execution.running) { Text("git status") }
+            OutlinedButton(onClick = { onCommandChange("pwd") }, enabled = !execution.running && !artifact.downloading) { Text("pwd") }
+            OutlinedButton(onClick = { onCommandChange("git status --short --branch") }, enabled = !execution.running && !artifact.downloading) { Text("git status") }
         }
 
         Button(
             onClick = onRun,
-            enabled = profile != null && state.hasStoredSecret && execution.command.isNotBlank() && !execution.running,
+            enabled = profile != null && state.hasStoredSecret && execution.command.isNotBlank() && !execution.running && !artifact.downloading,
         ) { Text(if (execution.running) "Running…" else "Run") }
 
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -293,4 +326,22 @@ private fun ProfileDialog(
 private fun copyText(context: Context, text: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     clipboard.setPrimaryClip(ClipData.newPlainText("PocketDev", text))
+}
+
+private fun openApk(context: Context, path: String) {
+    val file = File(path)
+    if (!file.isFile) {
+        Toast.makeText(context, "Downloaded APK is no longer available.", Toast.LENGTH_LONG).show()
+        return
+    }
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, "application/vnd.android.package-archive")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    runCatching { context.startActivity(intent) }
+        .onFailure {
+            Toast.makeText(context, "Android could not open this APK: ${it.message}", Toast.LENGTH_LONG).show()
+        }
 }
