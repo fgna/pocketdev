@@ -9,6 +9,8 @@ import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.common.SecurityUtils
 import net.schmizz.sshj.transport.verification.HostKeyVerifier
 import java.io.InputStream
+import java.net.Inet4Address
+import java.net.InetAddress
 import java.security.PublicKey
 
 interface SshCommandExecutor {
@@ -17,27 +19,38 @@ interface SshCommandExecutor {
 
 class SshjCommandExecutor : SshCommandExecutor {
     override fun execute(profile: SshProfile, secret: String, command: String): Flow<CommandEvent> = channelFlow {
-        val ssh = SSHClient()
+        var ssh: SSHClient? = null
+        var discoveredFingerprint: String? = null
         send(CommandEvent.Connecting)
 
         try {
-            var discoveredFingerprint: String? = null
-            if (profile.hostKeySha256.isBlank()) {
-                ssh.addHostKeyVerifier(object : HostKeyVerifier {
-                    override fun verify(hostname: String, port: Int, key: PublicKey): Boolean {
-                        discoveredFingerprint = SecurityUtils.getFingerprint(key)
-                        return hostname == profile.host && port == profile.port
+            val targets = withContext(Dispatchers.IO) { resolveTargets(profile.host) }
+            val failures = mutableListOf<String>()
+
+            for (target in targets) {
+                val candidate = SSHClient()
+                configureHostKeyVerifier(candidate, profile) { fingerprint ->
+                    discoveredFingerprint = fingerprint
+                }
+
+                try {
+                    withContext(Dispatchers.IO) {
+                        candidate.connect(target, profile.port)
                     }
-
-                    override fun findExistingAlgorithms(hostname: String, port: Int): List<String> = emptyList()
-                })
-            } else {
-                ssh.addHostKeyVerifier(profile.hostKeySha256.trim())
+                    ssh = candidate
+                    break
+                } catch (error: Exception) {
+                    failures += "$target:${profile.port} -> ${error.message ?: error::class.java.simpleName}"
+                    withContext(Dispatchers.IO) {
+                        runCatching { candidate.disconnect() }
+                        runCatching { candidate.close() }
+                    }
+                }
             }
 
-            withContext(Dispatchers.IO) {
-                ssh.connect(profile.host, profile.port)
-            }
+            val connected = ssh ?: throw IllegalStateException(
+                "Could not connect to ${profile.host}:${profile.port}. Tried: ${failures.joinToString(" | ")}",
+            )
 
             if (profile.hostKeySha256.isBlank()) {
                 val fingerprint = discoveredFingerprint
@@ -48,12 +61,12 @@ class SshjCommandExecutor : SshCommandExecutor {
 
             withContext(Dispatchers.IO) {
                 when (profile.authMode) {
-                    AuthMode.PASSWORD -> ssh.authPassword(profile.username, secret)
+                    AuthMode.PASSWORD -> connected.authPassword(profile.username, secret)
                     AuthMode.PRIVATE_KEY -> {
                         val keyFile = kotlin.io.path.createTempFile("pocketdev-key", ".pem").toFile()
                         try {
                             keyFile.writeText(secret)
-                            ssh.authPublickey(profile.username, ssh.loadKeys(keyFile.absolutePath))
+                            connected.authPublickey(profile.username, connected.loadKeys(keyFile.absolutePath))
                         } finally {
                             keyFile.delete()
                         }
@@ -62,7 +75,7 @@ class SshjCommandExecutor : SshCommandExecutor {
             }
             send(CommandEvent.Connected)
 
-            val session = withContext(Dispatchers.IO) { ssh.startSession() }
+            val session = withContext(Dispatchers.IO) { connected.startSession() }
             val remote = withContext(Dispatchers.IO) { session.exec(command) }
 
             val stdoutJob = launch(Dispatchers.IO) {
@@ -81,10 +94,40 @@ class SshjCommandExecutor : SshCommandExecutor {
             trySend(CommandEvent.ConnectionFailed(error.message ?: error::class.java.simpleName))
         } finally {
             withContext(Dispatchers.IO) {
-                runCatching { ssh.disconnect() }
-                runCatching { ssh.close() }
+                ssh?.let { client ->
+                    runCatching { client.disconnect() }
+                    runCatching { client.close() }
+                }
             }
         }
+    }
+
+    private fun configureHostKeyVerifier(
+        ssh: SSHClient,
+        profile: SshProfile,
+        onDiscoveredFingerprint: (String) -> Unit,
+    ) {
+        if (profile.hostKeySha256.isBlank()) {
+            ssh.addHostKeyVerifier(object : HostKeyVerifier {
+                override fun verify(hostname: String, port: Int, key: PublicKey): Boolean {
+                    onDiscoveredFingerprint(SecurityUtils.getFingerprint(key))
+                    return true
+                }
+
+                override fun findExistingAlgorithms(hostname: String, port: Int): List<String> = emptyList()
+            })
+        } else {
+            ssh.addHostKeyVerifier(profile.hostKeySha256.trim())
+        }
+    }
+
+    private fun resolveTargets(host: String): List<String> {
+        val addresses = InetAddress.getAllByName(host).toList()
+        return addresses
+            .sortedByDescending { it is Inet4Address }
+            .mapNotNull { it.hostAddress }
+            .distinct()
+            .ifEmpty { listOf(host) }
     }
 
     private fun stream(input: InputStream, onChunk: (String) -> Unit) {
