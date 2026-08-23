@@ -1,74 +1,72 @@
 # LLM Bench Android
 
-Small standalone Android app for comparing local OpenAI-compatible LLMs on the same phone under repeatable conditions.
+Standalone Android app for benchmarking local `.litertlm` models directly on the phone with the same LiteRT-LM runtime path used by `fgna/my-taskOS`.
 
 It intentionally lives under `tools/` and is not part of the PocketDev product app or Sprint 1 scope.
 
+## Runtime
+
+- `com.google.ai.edge.litertlm:litertlm-android:0.11.0`
+- model import through the Android document picker
+- copied into app-private `noBackupFilesDir`
+- GPU preferred, CPU fallback on initialization or inference failure
+- process-resident engine reused across prompts
+- first prompt is therefore a cold run; later prompts are warm runs
+
+No Base URL, HTTP server, API key, or network permission is required.
+
 ## What it measures
 
-For every model and prompt:
+For each prompt:
 
-- time to first token (TTFT), measured from request start to the first streamed content delta;
-- total request duration;
-- output token count when the API reports it;
-- otherwise a clearly marked tokenizer-independent token estimate;
-- generation tokens/second, measured after the first token;
-- full model response;
-- errors and HTTP failures.
+- time to first output (TTFT), including model initialization on a cold run;
+- total wall-clock duration;
+- approximate output token count;
+- approximate generation tokens/second;
+- full response text;
+- backend and cold/warm state in the model label;
+- errors.
 
-The built-in suite has 20 German prompts covering:
+LiteRT-LM 0.11 does not expose OpenAI-style completion usage metadata through this integration, so token counts are currently a tokenizer-independent estimate of roughly four output characters per token. Timing values are measured directly.
 
-- Weltwissen;
-- Deutsch / explanation quality;
-- reasoning;
-- TaskOS-like prioritisation and reminder questions;
-- longer advisory answers.
+The built-in suite contains 20 German prompts covering world knowledge, German explanation quality, reasoning, TaskOS-like questions, and longer advisory answers.
 
-## Running against a phone-local server
+## Running
 
-1. Start the local LLM runtime on the Android device with an OpenAI-compatible `/v1/chat/completions` endpoint.
-2. Open LLM Bench.
-3. Enter the base URL, for example `http://127.0.0.1:8080`.
-4. Enter one or more model IDs separated by commas.
-5. Start the benchmark.
-6. Export the resulting CSV through the Android share sheet.
+1. Open LLM Bench on the Android device.
+2. Tap `.litertlm importieren` and choose the model file from local storage.
+3. Optionally edit the model label used in the results.
+4. Start the benchmark.
+5. Export the CSV through the Android share sheet.
+6. Import the next `.litertlm` model and repeat under similar battery and thermal conditions.
 
-For a fair comparison, keep runtime, quantisation settings, context size and phone power/thermal conditions unchanged while changing only the model.
-
-## Recommended first comparison for TaskOS
-
-Use the exact model IDs exposed by the local runtime for:
-
-1. the current Gemma model as baseline;
-2. Qwen3 1.7B Q4;
-3. Qwen3.5 2B Q4.
-
-If the runtime cannot keep several models available at once, benchmark one model at a time and export each run. The prompt IDs are stable, so the CSV files can still be compared directly.
+For the TaskOS decision, start with the current Gemma model as baseline and then run compatible Qwen LiteRT-LM conversions under the same conditions.
 
 ## Build
 
-Open `tools/llm-bench-android` as a project in Android Studio and build the `app` debug variant.
-
-The project is deliberately isolated and does not yet carry its own Gradle wrapper binary. A wrapper can be generated from an installed Gradle with:
+The project uses the same Android/Kotlin generation and LiteRT-LM dependency as the current TaskOS local-PA implementation. If the wrapper was copied from `my-taskOS/android`, build with:
 
 ```bash
-gradle wrapper --gradle-version 8.9
-./gradlew test assembleDebug
+./gradlew test
+./gradlew assembleDebug
 ```
 
-## Interpretation notes
+The debug APK is written to:
 
-TTFT is the most important responsiveness metric for interactive TaskOS use. Tokens/second matters more for longer answers.
+```text
+app/build/outputs/apk/debug/app-debug.apk
+```
 
-When `token_count_source` is `estimated`, the result is suitable for relative comparison but should not be treated as an exact tokenizer count. The estimate uses approximately four output characters per token. If a runtime sends OpenAI-compatible completion usage metadata, the app uses that count instead.
+## Interpretation
 
-The benchmark does not currently rate answer quality automatically. The exported response text is retained so a later blind A/B scoring screen can compare correctness, depth, clarity and usefulness without revealing the model first.
+TTFT is the most important responsiveness metric for interactive TaskOS use. Tokens/second becomes more important for longer answers. Compare cold and warm results separately, because loading a multi-GB model can dominate the first request.
+
+The benchmark currently evaluates one imported model per run. This is deliberate: very large models should not be kept resident simultaneously on the phone just to perform an A/B comparison. Stable prompt IDs make separate CSV exports comparable.
 
 ## Next useful additions
 
-- blind A/B/C quality scoring;
-- battery percentage and thermal status before/after a run;
-- process/RAM sampling where Android permits meaningful measurement;
+- blind A/B/C quality scoring across imported result files;
+- battery and thermal state before/after a run;
+- RAM sampling where Android exposes meaningful values;
 - JSON export alongside CSV;
-- cold-run vs warm-run separation;
-- direct runtime adapters for llama.cpp / LiteRT if API-level tests show a need.
+- exact tokenizer counts if exposed by the LiteRT-LM API in a future runtime version.
