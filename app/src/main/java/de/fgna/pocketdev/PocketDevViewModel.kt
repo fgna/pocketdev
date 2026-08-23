@@ -40,6 +40,11 @@ data class ProjectEditorState(
     val githubRepository: String = "",
 )
 
+data class ProjectSessionState(
+    val command: CommandUiState = CommandUiState(command = "pwd"),
+    val artifact: ArtifactDownloadState = ArtifactDownloadState(),
+)
+
 data class PocketDevState(
     val profile: SshProfile? = null,
     val hasStoredSecret: Boolean = false,
@@ -47,13 +52,19 @@ data class PocketDevState(
     val editor: ProfileEditorState = ProfileEditorState(),
     val projects: List<ProjectConfig> = emptyList(),
     val project: ProjectConfig? = null,
+    val sessions: Map<String, ProjectSessionState> = emptyMap(),
     val projectEditorOpen: Boolean = false,
     val projectEditorId: String? = null,
     val projectEditor: ProjectEditorState = ProjectEditorState(),
     val pendingHostKeyFingerprint: String? = null,
-    val command: CommandUiState = CommandUiState(),
-    val artifact: ArtifactDownloadState = ArtifactDownloadState(),
-)
+    val pendingHostKeyProjectId: String? = null,
+) {
+    val command: CommandUiState
+        get() = project?.let { sessions[it.id]?.command } ?: CommandUiState(command = "pwd")
+
+    val artifact: ArtifactDownloadState
+        get() = project?.let { sessions[it.id]?.artifact } ?: ArtifactDownloadState()
+}
 
 class PocketDevViewModel(
     application: Application,
@@ -66,10 +77,6 @@ class PocketDevViewModel(
 
     private val _state = MutableStateFlow(loadInitialState())
     val state: StateFlow<PocketDevState> = _state.asStateFlow()
-
-    init {
-        persistCommandState(_state.value.command)
-    }
 
     fun openEditor() {
         val current = _state.value.profile
@@ -160,14 +167,14 @@ class PocketDevViewModel(
             githubRepository = editor.githubRepository.trim(),
         )
         val collection = projectRepository.upsert(project, makeActive = true)
+        val active = collection.activeProject
         updateState {
             it.copy(
                 projects = collection.projects,
-                project = collection.activeProject,
+                project = active,
+                sessions = ensureSessions(collection.projects, it.sessions),
                 projectEditorOpen = false,
                 projectEditorId = null,
-                command = CommandUiState(command = "pwd"),
-                artifact = ArtifactDownloadState(),
             )
         }
     }
@@ -179,8 +186,7 @@ class PocketDevViewModel(
             it.copy(
                 projects = collection.projects,
                 project = collection.activeProject,
-                command = CommandUiState(command = "pwd"),
-                artifact = ArtifactDownloadState(),
+                sessions = ensureSessions(collection.projects, it.sessions),
             )
         }
     }
@@ -192,20 +198,20 @@ class PocketDevViewModel(
             it.copy(
                 projects = collection.projects,
                 project = collection.activeProject,
+                sessions = ensureSessions(collection.projects, it.sessions - projectId),
                 projectEditorOpen = false,
                 projectEditorId = null,
-                command = CommandUiState(command = "pwd"),
-                artifact = ArtifactDownloadState(),
             )
         }
+        clearPersistedSession(projectId)
     }
 
     fun prepareProjectAction(action: ProjectAction): Boolean {
         val project = _state.value.project ?: return false
         val command = runCatching { ProjectCommandBuilder.command(project, action) }
             .getOrElse { error ->
-                updateState {
-                    it.copy(command = it.command.copy(connectionError = error.message ?: "Project action is not configured."))
+                updateSession(project.id) { session ->
+                    session.copy(command = session.command.copy(connectionError = error.message ?: "Project action is not configured."))
                 }
                 return false
             }
@@ -216,27 +222,28 @@ class PocketDevViewModel(
     fun downloadLatestApk() {
         val profile = _state.value.profile ?: return
         val project = _state.value.project ?: return
+        val projectId = project.id
         val secret = repository.loadSecret()
         if (secret.isNullOrBlank()) {
-            updateState { it.copy(artifact = it.artifact.copy(error = "No authentication secret is stored.")) }
+            updateSession(projectId) { it.copy(artifact = it.artifact.copy(error = "No authentication secret is stored.")) }
             return
         }
         if (profile.hostKeySha256.isBlank()) {
-            updateState { it.copy(artifact = it.artifact.copy(error = "Trust the SSH server before downloading artifacts.")) }
+            updateSession(projectId) { it.copy(artifact = it.artifact.copy(error = "Trust the SSH server before downloading artifacts.")) }
             return
         }
 
-        updateState { it.copy(artifact = ArtifactDownloadState(downloading = true)) }
+        updateSession(projectId) { it.copy(artifact = ArtifactDownloadState(downloading = true)) }
         viewModelScope.launch {
             runCatching {
                 artifactRetriever.downloadLatestApk(
                     profile = profile,
                     secret = secret,
                     project = project,
-                    destinationDir = File(getApplication<Application>().cacheDir, "artifacts"),
+                    destinationDir = File(getApplication<Application>().cacheDir, "artifacts/$projectId"),
                 )
             }.onSuccess { downloaded ->
-                updateState {
+                updateSession(projectId) {
                     it.copy(
                         artifact = ArtifactDownloadState(
                             downloading = false,
@@ -246,7 +253,7 @@ class PocketDevViewModel(
                     )
                 }
             }.onFailure { error ->
-                updateState {
+                updateSession(projectId) {
                     it.copy(
                         artifact = ArtifactDownloadState(
                             downloading = false,
@@ -261,29 +268,40 @@ class PocketDevViewModel(
     fun trustPendingHostKey() {
         val fingerprint = _state.value.pendingHostKeyFingerprint ?: return
         val profile = _state.value.profile ?: return
+        val projectId = _state.value.pendingHostKeyProjectId
         val trusted = profile.copy(hostKeySha256 = fingerprint)
         repository.save(trusted, null)
-        updateState { it.copy(profile = trusted, pendingHostKeyFingerprint = null) }
-        runCommand()
+        updateState { it.copy(profile = trusted, pendingHostKeyFingerprint = null, pendingHostKeyProjectId = null) }
+        if (projectId != null) runCommandFor(projectId)
     }
 
-    fun rejectPendingHostKey() = updateState { it.copy(pendingHostKeyFingerprint = null) }
+    fun rejectPendingHostKey() = updateState {
+        it.copy(pendingHostKeyFingerprint = null, pendingHostKeyProjectId = null)
+    }
 
-    fun setCommand(command: String) = updateState {
-        it.copy(command = it.command.copy(command = command))
+    fun setCommand(command: String) {
+        val projectId = _state.value.project?.id ?: return
+        updateSession(projectId) { it.copy(command = it.command.copy(command = command)) }
     }
 
     fun runCommand() {
+        val projectId = _state.value.project?.id ?: return
+        runCommandFor(projectId)
+    }
+
+    private fun runCommandFor(projectId: String) {
         val profile = _state.value.profile ?: return
         val secret = repository.loadSecret()
         if (secret.isNullOrBlank()) {
-            updateState { it.copy(command = it.command.copy(connectionError = "No authentication secret is stored.")) }
+            updateSession(projectId) { it.copy(command = it.command.copy(connectionError = "No authentication secret is stored.")) }
             return
         }
-        val commandText = _state.value.command.command.trim()
+        val session = _state.value.sessions[projectId] ?: return
+        if (session.command.running) return
+        val commandText = session.command.command.trim()
         if (commandText.isEmpty()) return
 
-        updateState {
+        updateSession(projectId) {
             it.copy(command = it.command.copy(running = true, stdout = "", stderr = "", exitCode = null, connectionError = null))
         }
 
@@ -293,12 +311,15 @@ class PocketDevViewModel(
                     updateState {
                         it.copy(
                             pendingHostKeyFingerprint = event.fingerprint,
-                            command = it.command.copy(running = false),
+                            pendingHostKeyProjectId = projectId,
                         )
                     }
+                    updateSession(projectId) { sessionState ->
+                        sessionState.copy(command = sessionState.command.copy(running = false))
+                    }
                 } else {
-                    updateState { state ->
-                        state.copy(command = CommandStateReducer.reduce(state.command, event))
+                    updateSession(projectId) { sessionState ->
+                        sessionState.copy(command = CommandStateReducer.reduce(sessionState.command, event))
                     }
                 }
             }
@@ -307,52 +328,79 @@ class PocketDevViewModel(
 
     private fun updateState(transform: (PocketDevState) -> PocketDevState) {
         _state.update(transform)
-        persistCommandState(_state.value.command)
     }
 
-    private fun persistCommandState(command: CommandUiState) {
-        savedStateHandle[KEY_COMMAND] = command.command
-        savedStateHandle[KEY_RUNNING] = command.running
-        savedStateHandle[KEY_STDOUT] = command.stdout
-        savedStateHandle[KEY_STDERR] = command.stderr
-        savedStateHandle[KEY_EXIT_CODE] = command.exitCode
-        savedStateHandle[KEY_CONNECTION_ERROR] = command.connectionError
+    private fun updateSession(projectId: String, transform: (ProjectSessionState) -> ProjectSessionState) {
+        _state.update { state ->
+            val current = state.sessions[projectId] ?: ProjectSessionState()
+            state.copy(sessions = state.sessions + (projectId to transform(current)))
+        }
+        _state.value.sessions[projectId]?.let { persistSession(projectId, it) }
     }
 
-    private fun restoreCommandState(): CommandUiState {
-        val wasRunning = savedStateHandle.get<Boolean>(KEY_RUNNING) == true
-        return CommandUiState(
-            command = savedStateHandle.get<String>(KEY_COMMAND) ?: "pwd",
-            running = false,
-            stdout = savedStateHandle.get<String>(KEY_STDOUT).orEmpty(),
-            stderr = savedStateHandle.get<String>(KEY_STDERR).orEmpty(),
-            exitCode = savedStateHandle.get<Int>(KEY_EXIT_CODE),
-            connectionError = if (wasRunning) {
-                "Command was interrupted because PocketDev was stopped while in the background. Run it again to continue."
-            } else {
-                savedStateHandle.get<String>(KEY_CONNECTION_ERROR)
-            },
+    private fun ensureSessions(
+        projects: List<ProjectConfig>,
+        current: Map<String, ProjectSessionState>,
+    ): Map<String, ProjectSessionState> = projects.associate { project ->
+        project.id to (current[project.id] ?: restoreSession(project.id))
+    }
+
+    private fun persistSession(projectId: String, session: ProjectSessionState) {
+        val prefix = "session.$projectId."
+        savedStateHandle[prefix + "command"] = session.command.command
+        savedStateHandle[prefix + "running"] = session.command.running
+        savedStateHandle[prefix + "stdout"] = session.command.stdout
+        savedStateHandle[prefix + "stderr"] = session.command.stderr
+        savedStateHandle[prefix + "exitCode"] = session.command.exitCode
+        savedStateHandle[prefix + "connectionError"] = session.command.connectionError
+        savedStateHandle[prefix + "artifactRemote"] = session.artifact.remotePath
+        savedStateHandle[prefix + "artifactLocal"] = session.artifact.localPath
+        savedStateHandle[prefix + "artifactError"] = session.artifact.error
+    }
+
+    private fun restoreSession(projectId: String): ProjectSessionState {
+        val prefix = "session.$projectId."
+        val wasRunning = savedStateHandle.get<Boolean>(prefix + "running") == true
+        return ProjectSessionState(
+            command = CommandUiState(
+                command = savedStateHandle.get<String>(prefix + "command") ?: "pwd",
+                running = false,
+                stdout = savedStateHandle.get<String>(prefix + "stdout").orEmpty(),
+                stderr = savedStateHandle.get<String>(prefix + "stderr").orEmpty(),
+                exitCode = savedStateHandle.get<Int>(prefix + "exitCode"),
+                connectionError = if (wasRunning) {
+                    "Command was interrupted because PocketDev was stopped while in the background. Run it again to continue."
+                } else {
+                    savedStateHandle.get<String>(prefix + "connectionError")
+                },
+            ),
+            artifact = ArtifactDownloadState(
+                downloading = false,
+                remotePath = savedStateHandle.get<String>(prefix + "artifactRemote"),
+                localPath = savedStateHandle.get<String>(prefix + "artifactLocal"),
+                error = savedStateHandle.get<String>(prefix + "artifactError"),
+            ),
         )
+    }
+
+    private fun clearPersistedSession(projectId: String) {
+        val prefix = "session.$projectId."
+        listOf(
+            "command", "running", "stdout", "stderr", "exitCode", "connectionError",
+            "artifactRemote", "artifactLocal", "artifactError",
+        ).forEach { key -> savedStateHandle.remove<Any>(prefix + key) }
     }
 
     private fun loadInitialState(): PocketDevState {
         val stored = repository.load()
         val projectCollection = projectRepository.load()
+        val sessions = projectCollection.projects.associate { project -> project.id to restoreSession(project.id) }
         return PocketDevState(
             profile = stored?.profile,
             hasStoredSecret = stored?.hasSecret == true,
             projects = projectCollection.projects,
             project = projectCollection.activeProject,
-            command = restoreCommandState(),
+            sessions = sessions,
         )
-    }
-
-    private companion object {
-        const val KEY_COMMAND = "command.text"
-        const val KEY_RUNNING = "command.running"
-        const val KEY_STDOUT = "command.stdout"
-        const val KEY_STDERR = "command.stderr"
-        const val KEY_EXIT_CODE = "command.exitCode"
-        const val KEY_CONNECTION_ERROR = "command.connectionError"
     }
 }

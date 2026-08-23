@@ -14,12 +14,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -76,26 +78,16 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
     val nearbyPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        if (granted) {
-            vm.runCommand()
-        } else {
-            Toast.makeText(
-                context,
-                "Nearby devices permission is required for SSH to local-network servers.",
-                Toast.LENGTH_LONG,
-            ).show()
-        }
+        if (granted) vm.runCommand()
+        else Toast.makeText(context, "Nearby devices permission is required for SSH to local-network servers.", Toast.LENGTH_LONG).show()
     }
 
     val runWithLanPermission = {
         if (
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             context.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED
-        ) {
-            nearbyPermissionLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
-        } else {
-            vm.runCommand()
-        }
+        ) nearbyPermissionLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
+        else vm.runCommand()
     }
     val runProjectAction: (ProjectAction) -> Unit = { action ->
         if (vm.prepareProjectAction(action)) runWithLanPermission()
@@ -107,6 +99,10 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                 state = state,
                 onConfigure = vm::openEditor,
                 onProjects = { projectSwitcherOpen = true },
+                onSelectProject = { projectId ->
+                    vm.selectProject(projectId)
+                    issueDraft = null
+                },
                 onProjectAction = runProjectAction,
                 onDownloadArtifact = vm::downloadLatestApk,
                 onOpenArtifact = { path -> openApk(context, path) },
@@ -124,12 +120,7 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
         }
 
         if (state.editorOpen) {
-            ProfileDialog(
-                state = state.editor,
-                onChange = vm::updateEditor,
-                onDismiss = vm::closeEditor,
-                onSave = vm::saveEditor,
-            )
+            ProfileDialog(state.editor, vm::updateEditor, vm::closeEditor, vm::saveEditor)
         }
 
         if (projectSwitcherOpen) {
@@ -189,12 +180,8 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                         Text("Only trust it if this is the server you intended to connect to. PocketDev will remember this fingerprint and reject future changes.")
                     }
                 },
-                confirmButton = {
-                    TextButton(onClick = vm::trustPendingHostKey) { Text("Trust and connect") }
-                },
-                dismissButton = {
-                    TextButton(onClick = vm::rejectPendingHostKey) { Text("Cancel") }
-                },
+                confirmButton = { TextButton(onClick = vm::trustPendingHostKey) { Text("Trust and connect") } },
+                dismissButton = { TextButton(onClick = vm::rejectPendingHostKey) { Text("Cancel") } },
             )
         }
     }
@@ -205,6 +192,7 @@ private fun PocketDevHome(
     state: PocketDevState,
     onConfigure: () -> Unit,
     onProjects: () -> Unit,
+    onSelectProject: (String) -> Unit,
     onProjectAction: (ProjectAction) -> Unit,
     onDownloadArtifact: () -> Unit,
     onOpenArtifact: (String) -> Unit,
@@ -257,6 +245,14 @@ private fun PocketDevHome(
                 }
             }
         },
+        bottomBar = {
+            BottomProjectTabs(
+                projects = state.projects,
+                activeProjectId = project?.id,
+                sessions = state.sessions,
+                onSelect = onSelectProject,
+            )
+        },
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -267,19 +263,10 @@ private fun PocketDevHome(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             PocketDevHairlineSurface(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(modifier = Modifier.fillMaxWidth()) {
                         PocketDevSectionLabel("Workspace", modifier = Modifier.weight(1f))
-                        if (state.projects.size > 1) {
-                            Text(
-                                "${state.projects.size} projects",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                        if (state.projects.size > 1) Text("${state.projects.size} projects", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     when {
                         profile == null -> Text("Configure an SSH server to start.", style = MaterialTheme.typography.bodyMedium)
@@ -295,56 +282,24 @@ private fun PocketDevHome(
                                 }
                                 Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                     Text("${profile.username}@${profile.host}", style = MaterialTheme.typography.bodySmall)
-                                    Text(
-                                        if (profile.hostKeySha256.isNotBlank() && state.hasStoredSecret) "SSH ready" else "SSH incomplete",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
+                                    Text(if (profile.hostKeySha256.isNotBlank() && state.hasStoredSecret) "SSH ready" else "SSH incomplete", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
 
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                OutlinedButton(
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { onProjectAction(ProjectAction.GIT_STATUS) },
-                                    enabled = !busy,
-                                ) { Text("Status") }
-                                OutlinedButton(
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { onProjectAction(ProjectAction.TEST) },
-                                    enabled = !busy && project.testCommand.isNotBlank(),
-                                ) { Text("Test") }
-                                Button(
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { onProjectAction(ProjectAction.BUILD) },
-                                    enabled = !busy && project.buildCommand.isNotBlank(),
-                                ) { Text("Build") }
+                                OutlinedButton(modifier = Modifier.weight(1f), onClick = { onProjectAction(ProjectAction.GIT_STATUS) }, enabled = !busy) { Text("Status") }
+                                OutlinedButton(modifier = Modifier.weight(1f), onClick = { onProjectAction(ProjectAction.TEST) }, enabled = !busy && project.testCommand.isNotBlank()) { Text("Test") }
+                                Button(modifier = Modifier.weight(1f), onClick = { onProjectAction(ProjectAction.BUILD) }, enabled = !busy && project.buildCommand.isNotBlank()) { Text("Build") }
                             }
 
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                OutlinedButton(
-                                    modifier = Modifier.weight(1f),
-                                    onClick = onDownloadArtifact,
-                                    enabled = profile.hostKeySha256.isNotBlank() && state.hasStoredSecret && !busy,
-                                ) { Text(if (artifact.downloading) "Downloading…" else "Get APK") }
-                                OutlinedButton(
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { artifact.localPath?.let(onOpenArtifact) },
-                                    enabled = artifact.localPath != null && !artifact.downloading,
-                                ) { Text("Open APK") }
+                                OutlinedButton(modifier = Modifier.weight(1f), onClick = onDownloadArtifact, enabled = profile.hostKeySha256.isNotBlank() && state.hasStoredSecret && !busy) { Text(if (artifact.downloading) "Downloading…" else "Get APK") }
+                                OutlinedButton(modifier = Modifier.weight(1f), onClick = { artifact.localPath?.let(onOpenArtifact) }, enabled = artifact.localPath != null && !artifact.downloading) { Text("Open APK") }
                             }
 
                             when {
-                                artifact.error != null -> Text(
-                                    "APK: ${artifact.error}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.error,
-                                )
-                                artifact.localPath != null -> Text(
-                                    "APK: ${File(artifact.localPath).name}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                                artifact.error != null -> Text("APK: ${artifact.error}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                artifact.localPath != null -> Text("APK: ${File(artifact.localPath).name}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -352,44 +307,22 @@ private fun PocketDevHome(
             }
 
             PocketDevHairlineSurface(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(modifier = Modifier.fillMaxWidth()) {
                         PocketDevSectionLabel("Command", modifier = Modifier.weight(1f))
-                        TextButton(
-                            onClick = { onCommandChange("pwd") },
-                            enabled = !busy,
-                        ) { Text("pwd") }
+                        TextButton(onClick = { onCommandChange("pwd") }, enabled = !busy) { Text("pwd") }
+                        TextButton(onClick = { onCommandChange("") }, enabled = !busy && execution.command.isNotEmpty()) { Text("Clear") }
                     }
-                    OutlinedTextField(
-                        value = execution.command,
-                        onValueChange = onCommandChange,
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        enabled = !busy,
-                        textStyle = MaterialTheme.typography.bodyMedium,
-                    )
+                    OutlinedTextField(value = execution.command, onValueChange = onCommandChange, modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !busy, textStyle = MaterialTheme.typography.bodyMedium)
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Button(
-                            modifier = Modifier.weight(1f),
-                            onClick = onRun,
-                            enabled = profile != null && state.hasStoredSecret && execution.command.isNotBlank() && !busy,
-                        ) { Text(if (execution.running) "Running…" else "Run") }
-                        OutlinedButton(
-                            onClick = { onCopy(execution.command) },
-                            enabled = execution.command.isNotBlank(),
-                        ) { Text("Copy") }
+                        Button(modifier = Modifier.weight(1f), onClick = onRun, enabled = profile != null && state.hasStoredSecret && execution.command.isNotBlank() && !busy) { Text(if (execution.running) "Running…" else "Run") }
+                        OutlinedButton(onClick = { onCopy(execution.command) }, enabled = execution.command.isNotBlank()) { Text("Copy") }
                     }
                 }
             }
 
             PocketDevHairlineSurface(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             PocketDevSectionLabel("Output")
@@ -409,18 +342,45 @@ private fun PocketDevHome(
                                 },
                             )
                         }
-                        if (execution.exitCode != null && execution.exitCode != 0) {
-                            TextButton(onClick = onIssueDraft) { Text("Issue draft") }
-                        }
-                        TextButton(
-                            onClick = { onCopy(execution.combinedOutput) },
-                            enabled = execution.combinedOutput.isNotBlank(),
-                        ) { Text("Copy") }
+                        if (execution.exitCode != null && execution.exitCode != 0) TextButton(onClick = onIssueDraft) { Text("Issue draft") }
+                        TextButton(onClick = { onCopy(execution.combinedOutput) }, enabled = execution.combinedOutput.isNotBlank()) { Text("Copy") }
                     }
-                    Text(
-                        execution.combinedOutput.ifBlank { "No output yet." },
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    Text(execution.combinedOutput.ifBlank { "No output yet." }, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BottomProjectTabs(
+    projects: List<ProjectConfig>,
+    activeProjectId: String?,
+    sessions: Map<String, ProjectSessionState>,
+    onSelect: (String) -> Unit,
+) {
+    Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp, shadowElevation = 6.dp) {
+        Column {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Text("Projects · ${projects.size}", modifier = Modifier.padding(start = 12.dp, top = 5.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 8.dp, vertical = 5.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (projects.isEmpty()) {
+                    TextButton(onClick = {}) { Text("No projects") }
+                } else {
+                    projects.forEach { tabProject ->
+                        val session = sessions[tabProject.id]
+                        val running = session?.command?.running == true || session?.artifact?.downloading == true
+                        val failed = session?.command?.exitCode?.let { it != 0 } == true || session?.command?.connectionError != null || session?.artifact?.error != null
+                        val label = buildString {
+                            if (running) append("● ") else if (failed) append("! ")
+                            append(tabProject.name)
+                        }
+                        if (tabProject.id == activeProjectId) Button(onClick = { onSelect(tabProject.id) }) { Text(label) }
+                        else OutlinedButton(onClick = { onSelect(tabProject.id) }) { Text(label) }
+                    }
                 }
             }
         }
@@ -440,21 +400,10 @@ private fun ProjectSwitcherDialog(
         onDismissRequest = onDismiss,
         title = { Text("Projects") },
         text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                if (projects.isEmpty()) {
-                    Text("No projects configured yet.", style = MaterialTheme.typography.bodyMedium)
-                } else {
-                    projects.forEach { project ->
-                        OutlinedButton(
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = { onSelect(project.id) },
-                        ) {
-                            Text(if (project.id == activeProjectId) "✓ ${project.name}" else project.name)
-                        }
-                    }
+            Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (projects.isEmpty()) Text("No projects configured yet.", style = MaterialTheme.typography.bodyMedium)
+                else projects.forEach { project ->
+                    OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = { onSelect(project.id) }) { Text(if (project.id == activeProjectId) "✓ ${project.name}" else project.name) }
                 }
             }
         },
@@ -478,6 +427,7 @@ private fun ProjectDialog(
     onDelete: () -> Unit,
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
+    val remotePathValid = state.remotePath.trim().startsWith("/")
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -485,31 +435,22 @@ private fun ProjectDialog(
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = state.name, onValueChange = { value -> onChange { it.copy(name = value) } }, label = { Text("Name") }, singleLine = true)
-                OutlinedTextField(value = state.remotePath, onValueChange = { value -> onChange { it.copy(remotePath = value) } }, label = { Text("Remote path") }, supportingText = { Text("Absolute directory on the SSH server") })
+                OutlinedTextField(
+                    value = state.remotePath,
+                    onValueChange = { value -> onChange { it.copy(remotePath = value) } },
+                    label = { Text("Remote path") },
+                    supportingText = { Text(if (state.remotePath.isNotBlank() && !remotePathValid) "Must start with /, e.g. /home/user/Projects/app" else "Absolute directory on the SSH server") },
+                    isError = state.remotePath.isNotBlank() && !remotePathValid,
+                )
                 OutlinedTextField(value = state.testCommand, onValueChange = { value -> onChange { it.copy(testCommand = value) } }, label = { Text("Test command") }, singleLine = true)
                 OutlinedTextField(value = state.buildCommand, onValueChange = { value -> onChange { it.copy(buildCommand = value) } }, label = { Text("Build command") }, singleLine = true)
-                OutlinedTextField(
-                    value = state.githubRepository,
-                    onValueChange = { value -> onChange { it.copy(githubRepository = value.trim()) } },
-                    label = { Text("GitHub repository") },
-                    supportingText = { Text("Optional owner/name, e.g. fgna/pocketdev") },
-                    singleLine = true,
-                )
+                OutlinedTextField(value = state.githubRepository, onValueChange = { value -> onChange { it.copy(githubRepository = value.trim()) } }, label = { Text("GitHub repository") }, supportingText = { Text("Optional owner/name, e.g. fgna/pocketdev") }, singleLine = true)
             }
         },
-        confirmButton = {
-            TextButton(
-                onClick = onSave,
-                enabled = state.name.isNotBlank() && state.remotePath.trim().startsWith("/"),
-            ) { Text("Save") }
-        },
+        confirmButton = { TextButton(onClick = onSave, enabled = state.name.isNotBlank() && remotePathValid) { Text("Save") } },
         dismissButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (editingExisting) {
-                    TextButton(onClick = { confirmDelete = true }) {
-                        Text("Delete", color = MaterialTheme.colorScheme.error)
-                    }
-                }
+                if (editingExisting) TextButton(onClick = { confirmDelete = true }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
                 TextButton(onClick = onDismiss) { Text("Cancel") }
             }
         },
@@ -520,9 +461,7 @@ private fun ProjectDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("Delete project?") },
             text = { Text("This removes the saved PocketDev project configuration. It does not delete the remote repository.") },
-            confirmButton = {
-                TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) }
-            },
+            confirmButton = { TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
         )
     }
@@ -543,41 +482,14 @@ private fun IssueDraftDialog(
         onDismissRequest = onDismiss,
         title = { Text("GitHub issue draft") },
         text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    if (repositoryValid) repository else "Configure a GitHub repository as owner/name first.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (repositoryValid) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
-                )
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Title") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = body,
-                    onValueChange = { body = it },
-                    label = { Text("Body") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 12,
-                )
-                Text(
-                    "Review the redacted diagnostic before opening GitHub. PocketDev does not submit the issue.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(if (repositoryValid) repository else "Configure a GitHub repository as owner/name first.", style = MaterialTheme.typography.bodySmall, color = if (repositoryValid) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
+                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = body, onValueChange = { body = it }, label = { Text("Body") }, modifier = Modifier.fillMaxWidth(), minLines = 12)
+                Text("Review the redacted diagnostic before opening GitHub. PocketDev does not submit the issue.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         },
-        confirmButton = {
-            TextButton(
-                onClick = { onOpenGitHub(title.trim(), body) },
-                enabled = repositoryValid && title.isNotBlank() && body.isNotBlank(),
-            ) { Text("Open in GitHub") }
-        },
+        confirmButton = { TextButton(onClick = { onOpenGitHub(title.trim(), body) }, enabled = repositoryValid && title.isNotBlank() && body.isNotBlank()) { Text("Open in GitHub") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
@@ -598,25 +510,14 @@ private fun ProfileDialog(
                 OutlinedTextField(value = state.port, onValueChange = { value -> onChange { it.copy(port = value.filter(Char::isDigit)) } }, label = { Text("Port") }, singleLine = true)
                 OutlinedTextField(value = state.username, onValueChange = { value -> onChange { it.copy(username = value) } }, label = { Text("Username") }, singleLine = true)
                 Text("The first connection asks you to confirm the server fingerprint.", style = MaterialTheme.typography.bodySmall)
-
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { onChange { it.copy(authMode = AuthMode.PASSWORD) } }, enabled = state.authMode != AuthMode.PASSWORD) { Text("Password") }
                     OutlinedButton(onClick = { onChange { it.copy(authMode = AuthMode.PRIVATE_KEY) } }, enabled = state.authMode != AuthMode.PRIVATE_KEY) { Text("Private key") }
                 }
-
-                OutlinedTextField(
-                    value = state.secret,
-                    onValueChange = { value -> onChange { it.copy(secret = value) } },
-                    label = { Text(if (state.authMode == AuthMode.PASSWORD) "Password" else "Private key (PEM)") },
-                    visualTransformation = if (state.authMode == AuthMode.PASSWORD) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-                    supportingText = { Text("Leave empty to keep the stored secret.") },
-                    minLines = if (state.authMode == AuthMode.PRIVATE_KEY) 4 else 1,
-                )
+                OutlinedTextField(value = state.secret, onValueChange = { value -> onChange { it.copy(secret = value) } }, label = { Text(if (state.authMode == AuthMode.PASSWORD) "Password" else "Private key (PEM)") }, visualTransformation = if (state.authMode == AuthMode.PASSWORD) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None, supportingText = { Text("Leave empty to keep the stored secret.") }, minLines = if (state.authMode == AuthMode.PRIVATE_KEY) 4 else 1)
             }
         },
-        confirmButton = {
-            TextButton(onClick = onSave, enabled = state.host.isNotBlank() && state.username.isNotBlank() && state.port.toIntOrNull() != null) { Text("Save") }
-        },
+        confirmButton = { TextButton(onClick = onSave, enabled = state.host.isNotBlank() && state.username.isNotBlank() && state.port.toIntOrNull() != null) { Text("Save") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
@@ -638,10 +539,7 @@ private fun openApk(context: Context, path: String) {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
-    runCatching { context.startActivity(intent) }
-        .onFailure {
-            Toast.makeText(context, "Android could not open this APK: ${it.message}", Toast.LENGTH_LONG).show()
-        }
+    runCatching { context.startActivity(intent) }.onFailure { Toast.makeText(context, "Android could not open this APK: ${it.message}", Toast.LENGTH_LONG).show() }
 }
 
 private fun openGitHubIssueDraft(context: Context, repository: String, title: String, body: String) {
@@ -650,19 +548,7 @@ private fun openGitHubIssueDraft(context: Context, repository: String, title: St
         Toast.makeText(context, "Configure the GitHub repository as owner/name first.", Toast.LENGTH_LONG).show()
         return
     }
-    val uri = Uri.Builder()
-        .scheme("https")
-        .authority("github.com")
-        .appendPath(repo.substringBefore('/'))
-        .appendPath(repo.substringAfter('/'))
-        .appendPath("issues")
-        .appendPath("new")
-        .appendQueryParameter("title", title)
-        .appendQueryParameter("body", body)
-        .build()
+    val uri = Uri.Builder().scheme("https").authority("github.com").appendPath(repo.substringBefore('/')).appendPath(repo.substringAfter('/')).appendPath("issues").appendPath("new").appendQueryParameter("title", title).appendQueryParameter("body", body).build()
     val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    runCatching { context.startActivity(intent) }
-        .onFailure {
-            Toast.makeText(context, "Could not open GitHub: ${it.message}", Toast.LENGTH_LONG).show()
-        }
+    runCatching { context.startActivity(intent) }.onFailure { Toast.makeText(context, "Could not open GitHub: ${it.message}", Toast.LENGTH_LONG).show() }
 }
