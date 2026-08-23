@@ -4,7 +4,7 @@ data class SshProfile(
     val host: String,
     val port: Int = 22,
     val username: String,
-    val hostKeySha256: String,
+    val hostKeySha256: String = "",
     val authMode: AuthMode = AuthMode.PASSWORD,
 )
 
@@ -21,6 +21,7 @@ enum class OutputStreamKind {
 sealed interface CommandEvent {
     data object Connecting : CommandEvent
     data object Connected : CommandEvent
+    data class HostKeyTrustRequired(val fingerprint: String) : CommandEvent
     data class Output(val stream: OutputStreamKind, val text: String) : CommandEvent
     data class Completed(val exitCode: Int) : CommandEvent
     data class ConnectionFailed(val message: String) : CommandEvent
@@ -51,6 +52,7 @@ object CommandStateReducer {
     fun reduce(current: CommandUiState, event: CommandEvent): CommandUiState = when (event) {
         CommandEvent.Connecting -> current.copy(running = true, connectionError = null)
         CommandEvent.Connected -> current.copy(running = true)
+        is CommandEvent.HostKeyTrustRequired -> current.copy(running = false)
         is CommandEvent.Output -> when (event.stream) {
             OutputStreamKind.STDOUT -> current.copy(stdout = current.stdout + event.text)
             OutputStreamKind.STDERR -> current.copy(stderr = current.stderr + event.text)
