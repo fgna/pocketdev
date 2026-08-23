@@ -6,6 +6,7 @@ data class ProjectConfig(
     val testCommand: String,
     val buildCommand: String,
     val githubRepository: String = "",
+    val id: String = "",
 )
 
 enum class ProjectAction {
