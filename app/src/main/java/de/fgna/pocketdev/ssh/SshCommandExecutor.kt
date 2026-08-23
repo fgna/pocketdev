@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.schmizz.sshj.DefaultSecurityProviderConfig
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.common.SecurityUtils
 import net.schmizz.sshj.transport.verification.HostKeyVerifier
@@ -28,7 +29,7 @@ class SshjCommandExecutor : SshCommandExecutor {
             val failures = mutableListOf<String>()
 
             for (target in targets) {
-                val candidate = SSHClient()
+                val candidate = SSHClient(DefaultSecurityProviderConfig())
                 configureHostKeyVerifier(candidate, profile) { fingerprint ->
                     discoveredFingerprint = fingerprint
                 }
