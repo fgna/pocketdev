@@ -45,8 +45,10 @@ data class PocketDevState(
     val hasStoredSecret: Boolean = false,
     val editorOpen: Boolean = false,
     val editor: ProfileEditorState = ProfileEditorState(),
+    val projects: List<ProjectConfig> = emptyList(),
     val project: ProjectConfig? = null,
     val projectEditorOpen: Boolean = false,
+    val projectEditorId: String? = null,
     val projectEditor: ProjectEditorState = ProjectEditorState(),
     val pendingHostKeyFingerprint: String? = null,
     val command: CommandUiState = CommandUiState(),
@@ -114,10 +116,15 @@ class PocketDevViewModel(
 
     fun openProjectEditor() {
         val current = _state.value.project
+        if (current == null) {
+            openNewProjectEditor()
+            return
+        }
         updateState {
             it.copy(
                 projectEditorOpen = true,
-                projectEditor = if (current == null) ProjectEditorState() else ProjectEditorState(
+                projectEditorId = current.id,
+                projectEditor = ProjectEditorState(
                     name = current.name,
                     remotePath = current.remotePath,
                     testCommand = current.testCommand,
@@ -128,22 +135,69 @@ class PocketDevViewModel(
         }
     }
 
+    fun openNewProjectEditor() = updateState {
+        it.copy(
+            projectEditorOpen = true,
+            projectEditorId = null,
+            projectEditor = ProjectEditorState(),
+        )
+    }
+
     fun closeProjectEditor() = updateState { it.copy(projectEditorOpen = false) }
 
     fun updateProjectEditor(transform: (ProjectEditorState) -> ProjectEditorState) =
         updateState { it.copy(projectEditor = transform(it.projectEditor)) }
 
     fun saveProjectEditor() {
-        val editor = _state.value.projectEditor
+        val state = _state.value
+        val editor = state.projectEditor
         val project = ProjectConfig(
+            id = state.projectEditorId.orEmpty(),
             name = editor.name.trim(),
             remotePath = editor.remotePath.trim(),
             testCommand = editor.testCommand.trim(),
             buildCommand = editor.buildCommand.trim(),
             githubRepository = editor.githubRepository.trim(),
         )
-        projectRepository.save(project)
-        updateState { it.copy(project = project, projectEditorOpen = false) }
+        val collection = projectRepository.upsert(project, makeActive = true)
+        updateState {
+            it.copy(
+                projects = collection.projects,
+                project = collection.activeProject,
+                projectEditorOpen = false,
+                projectEditorId = null,
+                command = CommandUiState(command = "pwd"),
+                artifact = ArtifactDownloadState(),
+            )
+        }
+    }
+
+    fun selectProject(projectId: String) {
+        if (_state.value.project?.id == projectId) return
+        val collection = projectRepository.setActive(projectId)
+        updateState {
+            it.copy(
+                projects = collection.projects,
+                project = collection.activeProject,
+                command = CommandUiState(command = "pwd"),
+                artifact = ArtifactDownloadState(),
+            )
+        }
+    }
+
+    fun deleteCurrentProject() {
+        val projectId = _state.value.project?.id ?: return
+        val collection = projectRepository.delete(projectId)
+        updateState {
+            it.copy(
+                projects = collection.projects,
+                project = collection.activeProject,
+                projectEditorOpen = false,
+                projectEditorId = null,
+                command = CommandUiState(command = "pwd"),
+                artifact = ArtifactDownloadState(),
+            )
+        }
     }
 
     fun prepareProjectAction(action: ProjectAction): Boolean {
@@ -172,9 +226,7 @@ class PocketDevViewModel(
             return
         }
 
-        updateState {
-            it.copy(artifact = ArtifactDownloadState(downloading = true))
-        }
+        updateState { it.copy(artifact = ArtifactDownloadState(downloading = true)) }
         viewModelScope.launch {
             runCatching {
                 artifactRetriever.downloadLatestApk(
@@ -285,10 +337,12 @@ class PocketDevViewModel(
 
     private fun loadInitialState(): PocketDevState {
         val stored = repository.load()
+        val projectCollection = projectRepository.load()
         return PocketDevState(
             profile = stored?.profile,
             hasStoredSecret = stored?.hasSecret == true,
-            project = projectRepository.load(),
+            projects = projectCollection.projects,
+            project = projectCollection.activeProject,
             command = restoreCommandState(),
         )
     }
