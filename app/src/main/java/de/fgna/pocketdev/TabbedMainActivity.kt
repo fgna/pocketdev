@@ -57,8 +57,6 @@ private fun BottomProjectTabs(
     sessions: Map<String, ProjectSessionState>,
     onSelect: (String) -> Unit,
 ) {
-    if (projects.size < 2) return
-
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
@@ -67,27 +65,42 @@ private fun BottomProjectTabs(
     ) {
         Column {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Text(
+                text = "Projects · ${projects.size}",
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
                     .navigationBarsPadding()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                projects.forEach { project ->
-                    val session = sessions[project.id]
-                    val running = session?.command?.running == true || session?.artifact?.downloading == true
-                    val failed = session?.command?.exitCode?.let { it != 0 } == true ||
-                        session?.command?.connectionError != null || session?.artifact?.error != null
-                    val label = buildString {
-                        if (running) append("● ") else if (failed) append("! ")
-                        append(project.name)
-                    }
-                    if (project.id == activeProjectId) {
-                        Button(onClick = { onSelect(project.id) }) { Text(label) }
-                    } else {
-                        OutlinedButton(onClick = { onSelect(project.id) }) { Text(label) }
+                if (projects.isEmpty()) {
+                    Text(
+                        "No saved projects",
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    projects.forEach { project ->
+                        val session = sessions[project.id]
+                        val running = session?.command?.running == true || session?.artifact?.downloading == true
+                        val failed = session?.command?.exitCode?.let { it != 0 } == true ||
+                            session?.command?.connectionError != null || session?.artifact?.error != null
+                        val label = buildString {
+                            if (running) append("● ") else if (failed) append("! ")
+                            append(project.name)
+                        }
+                        if (project.id == activeProjectId) {
+                            Button(onClick = { onSelect(project.id) }) { Text(label) }
+                        } else {
+                            OutlinedButton(onClick = { onSelect(project.id) }) { Text(label) }
+                        }
                     }
                 }
             }
