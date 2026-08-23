@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import de.fgna.pocketdev.artifact.ArtifactDownloadState
+import de.fgna.pocketdev.artifact.SshArtifactRetriever
 import de.fgna.pocketdev.data.ProjectConfigRepository
 import de.fgna.pocketdev.data.SshProfileRepository
 import de.fgna.pocketdev.project.ProjectAction
@@ -20,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 
 data class ProfileEditorState(
     val host: String = "",
@@ -46,6 +49,7 @@ data class PocketDevState(
     val projectEditor: ProjectEditorState = ProjectEditorState(),
     val pendingHostKeyFingerprint: String? = null,
     val command: CommandUiState = CommandUiState(),
+    val artifact: ArtifactDownloadState = ArtifactDownloadState(),
 )
 
 class PocketDevViewModel(
@@ -55,6 +59,7 @@ class PocketDevViewModel(
     private val repository = SshProfileRepository(application)
     private val projectRepository = ProjectConfigRepository(application)
     private val executor = SshjCommandExecutor()
+    private val artifactRetriever = SshArtifactRetriever()
 
     private val _state = MutableStateFlow(loadInitialState())
     val state: StateFlow<PocketDevState> = _state.asStateFlow()
@@ -149,6 +154,53 @@ class PocketDevViewModel(
             }
         setCommand(command)
         return true
+    }
+
+    fun downloadLatestApk() {
+        val profile = _state.value.profile ?: return
+        val project = _state.value.project ?: return
+        val secret = repository.loadSecret()
+        if (secret.isNullOrBlank()) {
+            updateState { it.copy(artifact = it.artifact.copy(error = "No authentication secret is stored.")) }
+            return
+        }
+        if (profile.hostKeySha256.isBlank()) {
+            updateState { it.copy(artifact = it.artifact.copy(error = "Trust the SSH server before downloading artifacts.")) }
+            return
+        }
+
+        updateState {
+            it.copy(artifact = ArtifactDownloadState(downloading = true))
+        }
+        viewModelScope.launch {
+            runCatching {
+                artifactRetriever.downloadLatestApk(
+                    profile = profile,
+                    secret = secret,
+                    project = project,
+                    destinationDir = File(getApplication<Application>().cacheDir, "artifacts"),
+                )
+            }.onSuccess { downloaded ->
+                updateState {
+                    it.copy(
+                        artifact = ArtifactDownloadState(
+                            downloading = false,
+                            remotePath = downloaded.remotePath,
+                            localPath = downloaded.localFile.absolutePath,
+                        ),
+                    )
+                }
+            }.onFailure { error ->
+                updateState {
+                    it.copy(
+                        artifact = ArtifactDownloadState(
+                            downloading = false,
+                            error = error.message ?: error::class.java.simpleName,
+                        ),
+                    )
+                }
+            }
+        }
     }
 
     fun trustPendingHostKey() {
