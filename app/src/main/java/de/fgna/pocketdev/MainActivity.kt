@@ -313,6 +313,13 @@ private fun PocketDevHome(
                         TextButton(onClick = { onCommandChange("pwd") }, enabled = !busy) { Text("pwd") }
                         TextButton(onClick = { onCommandChange("") }, enabled = !busy && execution.command.isNotEmpty()) { Text("Clear") }
                     }
+                    project?.remotePath?.let { remotePath ->
+                        Text(
+                            "cwd · $remotePath",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     OutlinedTextField(
                         value = execution.command,
                         onValueChange = onCommandChange,
