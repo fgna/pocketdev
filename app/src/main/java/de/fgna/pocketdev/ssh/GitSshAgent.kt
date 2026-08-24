@@ -1,6 +1,8 @@
 package de.fgna.pocketdev.ssh
 
 object GitSshAgent {
+    private const val ENSURE_AGENT = "__POCKETDEV_ENSURE_AGENT__"
+
     private fun shell(template: String): String = template.replace('@', '$')
 
     private val ensureAgent = shell(
@@ -21,7 +23,7 @@ object GitSshAgent {
 
     fun statusCommand(): String = shell(
         """
-        @ENSURE_AGENT
+        __POCKETDEV_ENSURE_AGENT__
         if ssh-add -l >/dev/null 2>&1; then
           printf 'POCKETDEV_GIT_KEY_READY\n'
         else
@@ -33,11 +35,11 @@ object GitSshAgent {
           fi
         fi
         """.trimIndent(),
-    ).replace("$ENSURE_AGENT", ensureAgent)
+    ).replace(ENSURE_AGENT, ensureAgent)
 
     fun unlockCommand(): String = shell(
         """
-        @ENSURE_AGENT
+        __POCKETDEV_ENSURE_AGENT__
         POCKETDEV_KEY=""
         for candidate in "@HOME/.ssh/id_ed25519" "@HOME/.ssh/id_rsa" "@HOME/.ssh/id_ecdsa"; do
           if [ -f "@candidate" ]; then
@@ -68,7 +70,5 @@ POCKETDEV_ASKPASS_EOF
         fi
         exit "@POCKETDEV_ADD_STATUS"
         """.trimIndent(),
-    ).replace("$ENSURE_AGENT", ensureAgent)
-
-    private const val ENSURE_AGENT = "__POCKETDEV_ENSURE_AGENT__"
+    ).replace(ENSURE_AGENT, ensureAgent)
 }
