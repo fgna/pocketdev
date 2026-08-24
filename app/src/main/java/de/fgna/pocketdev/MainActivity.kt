@@ -46,8 +46,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import de.fgna.pocketdev.artifact.ApkInstaller
+import de.fgna.pocketdev.artifact.SshArtifactRetriever
 import de.fgna.pocketdev.diagnostics.DiagnosticDraftBuilder
 import de.fgna.pocketdev.diagnostics.DiagnosticIssueDraft
 import de.fgna.pocketdev.project.ProjectAction
@@ -661,13 +662,18 @@ private fun openApk(context: Context, path: String) {
         Toast.makeText(context, "Downloaded APK is no longer available.", Toast.LENGTH_LONG).show()
         return
     }
-    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-    val intent = Intent(Intent.ACTION_VIEW).apply {
-        setDataAndType(uri, "application/vnd.android.package-archive")
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    val marker = File(path + SshArtifactRetriever.VERIFIED_SUFFIX)
+    val verifiedHash = runCatching { marker.readText().trim() }.getOrNull()
+    if (!marker.isFile || verifiedHash == null || !verifiedHash.matches(Regex("^[0-9a-f]{64}$"))) {
+        Toast.makeText(context, "APK is not verified. Tap Get APK again before installing.", Toast.LENGTH_LONG).show()
+        return
     }
-    runCatching { context.startActivity(intent) }.onFailure { Toast.makeText(context, "Android could not open this APK: ${it.message}", Toast.LENGTH_LONG).show() }
+
+    runCatching { ApkInstaller.install(context, file) }
+        .onFailure { error ->
+            Toast.makeText(context, "Could not start APK install: ${error.message}", Toast.LENGTH_LONG).show()
+        }
 }
 
 private fun openGitHubIssueDraft(context: Context, repository: String, title: String, body: String) {
