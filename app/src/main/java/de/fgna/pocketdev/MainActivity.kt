@@ -157,6 +157,18 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
             )
         }
 
+        state.pendingProjectCreate?.let { request ->
+            val project = state.projects.firstOrNull { it.id == request.projectId }
+            if (project != null) {
+                ProjectCreateDialog(
+                    project = project,
+                    gitKeyStatus = state.gitKeyStatus,
+                    onDismiss = vm::dismissProjectCreate,
+                    onCreate = vm::createPendingProject,
+                )
+            }
+        }
+
         if (state.gitKeyUnlockOpen) {
             GitKeyUnlockDialog(
                 onDismiss = vm::closeGitKeyUnlock,
@@ -399,6 +411,37 @@ private fun PocketDevHome(
             }
         }
     }
+}
+
+@Composable
+private fun ProjectCreateDialog(
+    project: ProjectConfig,
+    gitKeyStatus: GitKeyStatus,
+    onDismiss: () -> Unit,
+    onCreate: () -> Unit,
+) {
+    val willClone = project.githubRepository.isNotBlank()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Create project on server?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("PocketDev could not find the configured project folder:")
+                Text(project.remotePath, style = MaterialTheme.typography.bodySmall)
+                if (willClone) {
+                    Text("Create it by cloning ${project.githubRepository} from GitHub. The Git SSH key will be unlocked first if needed.")
+                    if (gitKeyStatus != GitKeyStatus.READY) {
+                        Text("Git key is not ready yet; Create will ask for its passphrase.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    Text("No GitHub repository is configured, so PocketDev will create an empty directory.")
+                }
+                Text("The original command will continue automatically after creation succeeds.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = { TextButton(onClick = onCreate) { Text("Create") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
