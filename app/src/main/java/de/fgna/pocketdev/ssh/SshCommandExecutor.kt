@@ -16,11 +16,16 @@ import java.net.InetAddress
 import java.security.PublicKey
 
 interface SshCommandExecutor {
-    fun execute(profile: SshProfile, secret: String, command: String): Flow<CommandEvent>
+    fun execute(profile: SshProfile, secret: String, command: String, stdinText: String? = null): Flow<CommandEvent>
 }
 
 class SshjCommandExecutor : SshCommandExecutor {
-    override fun execute(profile: SshProfile, secret: String, command: String): Flow<CommandEvent> = channelFlow {
+    override fun execute(
+        profile: SshProfile,
+        secret: String,
+        command: String,
+        stdinText: String?,
+    ): Flow<CommandEvent> = channelFlow {
         var ssh: SSHClient? = null
         var discoveredFingerprint: String? = null
         send(CommandEvent.Connecting)
@@ -79,6 +84,16 @@ class SshjCommandExecutor : SshCommandExecutor {
 
             val session = withContext(Dispatchers.IO) { connected.startSession() }
             val remote = withContext(Dispatchers.IO) { session.exec(command) }
+
+            if (stdinText != null) {
+                withContext(Dispatchers.IO) {
+                    remote.outputStream.bufferedWriter().use { writer ->
+                        writer.write(stdinText)
+                        writer.newLine()
+                        writer.flush()
+                    }
+                }
+            }
 
             val stdoutJob = launch(Dispatchers.IO) {
                 stream(remote.inputStream) { text -> trySend(CommandEvent.Output(OutputStreamKind.STDOUT, text)) }
