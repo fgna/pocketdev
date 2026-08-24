@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,11 +28,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import de.fgna.pocketdev.artifact.ApkInstaller
-import de.fgna.pocketdev.artifact.SshArtifactRetriever
 import de.fgna.pocketdev.ssh.SshjCommandExecutor
 import de.fgna.pocketdev.ui.PocketDevTheme
-import java.io.File
 
 class InteractiveMainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,36 +49,9 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     val context = LocalContext.current
     val command = state.command
     val projectPath = state.project?.remotePath.orEmpty()
-    val artifactPath = state.artifact.localPath
-    val artifactVerified = artifactPath?.let { path ->
-        val apk = File(path)
-        val marker = File(path + SshArtifactRetriever.VERIFIED_SUFFIX)
-        apk.isFile && marker.isFile && marker.readText().trim().matches(Regex("^[0-9a-f]{64}$"))
-    } == true
 
     Box(modifier = Modifier.fillMaxSize()) {
         PocketDevApp(vm)
-
-        if (artifactVerified && artifactPath != null && !command.running && !state.artifact.downloading) {
-            OutlinedButton(
-                onClick = {
-                    runCatching { ApkInstaller.install(context, File(artifactPath)) }
-                        .onFailure { error ->
-                            Toast.makeText(
-                                context,
-                                "Could not start APK install: ${error.message}",
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        }
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .navigationBarsPadding()
-                    .padding(start = 16.dp, bottom = 104.dp),
-            ) {
-                Text("Install verified APK")
-            }
-        }
 
         if (command.running && !command.awaitingSudoPassword) {
             Button(
