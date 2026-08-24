@@ -22,6 +22,7 @@ sealed interface CommandEvent {
     data object Connecting : CommandEvent
     data object Connected : CommandEvent
     data object SudoPasswordRequired : CommandEvent
+    data object SudoPasswordSubmitted : CommandEvent
     data class HostKeyTrustRequired(val fingerprint: String) : CommandEvent
     data class Output(val stream: OutputStreamKind, val text: String) : CommandEvent
     data class Completed(val exitCode: Int) : CommandEvent
@@ -55,6 +56,7 @@ object CommandStateReducer {
         CommandEvent.Connecting -> current.copy(running = true, connectionError = null, awaitingSudoPassword = false)
         CommandEvent.Connected -> current.copy(running = true)
         CommandEvent.SudoPasswordRequired -> current.copy(running = true, awaitingSudoPassword = true)
+        CommandEvent.SudoPasswordSubmitted -> current.copy(running = true, awaitingSudoPassword = false)
         is CommandEvent.HostKeyTrustRequired -> current.copy(running = false, awaitingSudoPassword = false)
         is CommandEvent.Output -> when (event.stream) {
             OutputStreamKind.STDOUT -> current.copy(stdout = current.stdout + event.text)
