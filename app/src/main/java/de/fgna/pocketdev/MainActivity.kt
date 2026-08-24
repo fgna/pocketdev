@@ -313,7 +313,15 @@ private fun PocketDevHome(
                         TextButton(onClick = { onCommandChange("pwd") }, enabled = !busy) { Text("pwd") }
                         TextButton(onClick = { onCommandChange("") }, enabled = !busy && execution.command.isNotEmpty()) { Text("Clear") }
                     }
-                    OutlinedTextField(value = execution.command, onValueChange = onCommandChange, modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !busy, textStyle = MaterialTheme.typography.bodyMedium)
+                    OutlinedTextField(
+                        value = execution.command,
+                        onValueChange = onCommandChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 5,
+                        maxLines = 5,
+                        enabled = !busy,
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                    )
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Button(modifier = Modifier.weight(1f), onClick = onRun, enabled = profile != null && state.hasStoredSecret && execution.command.isNotBlank() && !busy) { Text(if (execution.running) "Running…" else "Run") }
                         OutlinedButton(onClick = { onCopy(execution.command) }, enabled = execution.command.isNotBlank()) { Text("Copy") }
