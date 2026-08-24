@@ -60,6 +60,7 @@ class SshArtifactRetriever : ArtifactRetriever {
             require(localSha256.equals(remoteSha256, ignoreCase = true)) {
                 "APK integrity check failed: server and downloaded SHA-256 differ."
             }
+            File(localFile.absolutePath + VERIFIED_SUFFIX).writeText(localSha256)
 
             DownloadedArtifact(
                 remotePath = remotePath,
@@ -164,6 +165,7 @@ class SshArtifactRetriever : ArtifactRetriever {
         .ifEmpty { listOf(host) }
 
     companion object {
+        const val VERIFIED_SUFFIX = ".sha256-verified"
         private val SHA256 = Regex("^[0-9a-fA-F]{64}$")
     }
 }
