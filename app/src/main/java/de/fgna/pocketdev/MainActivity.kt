@@ -109,6 +109,8 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                 onCommandChange = vm::setCommand,
                 onRun = runWithLanPermission,
                 onCopy = { text -> copyText(context, text) },
+                onUnlockGitKey = vm::openGitKeyUnlock,
+                onRefreshGitKey = vm::refreshGitKeyStatus,
                 onIssueDraft = {
                     val project = state.project
                     val exitCode = state.command.exitCode
@@ -152,6 +154,13 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                 onDismiss = vm::closeProjectEditor,
                 onSave = vm::saveProjectEditor,
                 onDelete = vm::deleteCurrentProject,
+            )
+        }
+
+        if (state.gitKeyUnlockOpen) {
+            GitKeyUnlockDialog(
+                onDismiss = vm::closeGitKeyUnlock,
+                onUnlock = vm::unlockGitKey,
             )
         }
 
@@ -199,6 +208,8 @@ private fun PocketDevHome(
     onCommandChange: (String) -> Unit,
     onRun: () -> Unit,
     onCopy: (String) -> Unit,
+    onUnlockGitKey: () -> Unit,
+    onRefreshGitKey: () -> Unit,
     onIssueDraft: () -> Unit,
 ) {
     val profile = state.profile
@@ -287,6 +298,29 @@ private fun PocketDevHome(
                             }
 
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    when (state.gitKeyStatus) {
+                                        GitKeyStatus.UNKNOWN -> "Git key · unknown"
+                                        GitKeyStatus.CHECKING -> "Git key · checking…"
+                                        GitKeyStatus.LOCKED -> "Git key · locked"
+                                        GitKeyStatus.READY -> "Git key · ready"
+                                        GitKeyStatus.ERROR -> "Git key · check failed"
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (state.gitKeyStatus == GitKeyStatus.ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                when (state.gitKeyStatus) {
+                                    GitKeyStatus.LOCKED -> TextButton(onClick = onUnlockGitKey) { Text("Unlock") }
+                                    GitKeyStatus.UNKNOWN, GitKeyStatus.ERROR -> TextButton(onClick = onRefreshGitKey) { Text("Check") }
+                                    else -> Unit
+                                }
+                            }
+                            state.gitKeyMessage?.let { message ->
+                                Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            }
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 OutlinedButton(modifier = Modifier.weight(1f), onClick = { onProjectAction(ProjectAction.GIT_STATUS) }, enabled = !busy) { Text("Status") }
                                 OutlinedButton(modifier = Modifier.weight(1f), onClick = { onProjectAction(ProjectAction.TEST) }, enabled = !busy && project.testCommand.isNotBlank()) { Text("Test") }
                                 Button(modifier = Modifier.weight(1f), onClick = { onProjectAction(ProjectAction.BUILD) }, enabled = !busy && project.buildCommand.isNotBlank()) { Text("Build") }
@@ -365,6 +399,42 @@ private fun PocketDevHome(
             }
         }
     }
+}
+
+@Composable
+private fun GitKeyUnlockDialog(
+    onDismiss: () -> Unit,
+    onUnlock: (String) -> Unit,
+) {
+    var passphrase by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Unlock Git key") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Enter the passphrase for the GitHub SSH key on the development server. PocketDev sends it only to ssh-add and does not store it.")
+                OutlinedTextField(
+                    value = passphrase,
+                    onValueChange = { passphrase = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Passphrase") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val value = passphrase
+                    passphrase = ""
+                    onUnlock(value)
+                },
+                enabled = passphrase.isNotBlank(),
+            ) { Text("Unlock") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
