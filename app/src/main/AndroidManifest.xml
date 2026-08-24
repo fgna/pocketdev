@@ -25,6 +25,10 @@
             android:name=".MainActivity"
             android:exported="false" />
 
+        <receiver
+            android:name=".artifact.ApkInstallResultReceiver"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"
