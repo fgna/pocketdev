@@ -30,6 +30,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.fgna.pocketdev.artifact.ApkInstaller
+import de.fgna.pocketdev.artifact.SshArtifactRetriever
 import de.fgna.pocketdev.ssh.SshjCommandExecutor
 import de.fgna.pocketdev.ui.PocketDevTheme
 import java.io.File
@@ -53,11 +54,16 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     val command = state.command
     val projectPath = state.project?.remotePath.orEmpty()
     val artifactPath = state.artifact.localPath
+    val artifactVerified = artifactPath?.let { path ->
+        val apk = File(path)
+        val marker = File(path + SshArtifactRetriever.VERIFIED_SUFFIX)
+        apk.isFile && marker.isFile && marker.readText().trim().matches(Regex("^[0-9a-f]{64}$"))
+    } == true
 
     Box(modifier = Modifier.fillMaxSize()) {
         PocketDevApp(vm)
 
-        if (artifactPath != null && !command.running && !state.artifact.downloading) {
+        if (artifactVerified && artifactPath != null && !command.running && !state.artifact.downloading) {
             OutlinedButton(
                 onClick = {
                     runCatching { ApkInstaller.install(context, File(artifactPath)) }
