@@ -10,6 +10,7 @@ import net.schmizz.sshj.DefaultSecurityProviderConfig
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.common.SecurityUtils
 import net.schmizz.sshj.connection.channel.direct.Session
+import net.schmizz.sshj.connection.channel.direct.Signal
 import net.schmizz.sshj.transport.verification.HostKeyVerifier
 import java.io.BufferedWriter
 import java.io.InputStream
@@ -244,6 +245,8 @@ class SshjCommandExecutor : SshCommandExecutor {
             val key = entry.key
             val active = entry.value
             cancelledCommands += key
+            runCatching { active.remote.signal(Signal.INT) }
+            runCatching { Thread.sleep(120) }
             runCatching { active.remote.close() }
             runCatching { active.session.close() }
             runCatching { active.ssh.disconnect() }
