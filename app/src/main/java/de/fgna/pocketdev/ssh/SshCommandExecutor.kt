@@ -25,7 +25,7 @@ interface SshCommandExecutor {
         command: String,
         stdinText: String? = null,
         commandId: String? = null,
-        interactiveSudo: Boolean = false,
+        interactiveSudo: Boolean = true,
     ): Flow<CommandEvent>
 
     fun sendInput(commandId: String, text: String): Boolean = false
@@ -34,33 +34,17 @@ interface SshCommandExecutor {
 
 class SshjCommandExecutor : SshCommandExecutor {
     private data class ActiveCommand(
+        val originalCommand: String,
         val ssh: SSHClient,
         val session: Session,
         val remote: Session.Command,
         val writer: BufferedWriter,
+        val emit: (CommandEvent) -> Unit,
     )
 
-    private val activeCommands = ConcurrentHashMap<String, ActiveCommand>()
-    private val cancelledCommands = ConcurrentHashMap.newKeySet<String>()
+    override fun sendInput(commandId: String, text: String): Boolean = sendInputTo(commandId, text)
 
-    override fun sendInput(commandId: String, text: String): Boolean {
-        val active = activeCommands[commandId] ?: return false
-        return runCatching {
-            active.writer.write(text)
-            active.writer.newLine()
-            active.writer.flush()
-        }.isSuccess
-    }
-
-    override fun cancel(commandId: String): Boolean {
-        val active = activeCommands[commandId] ?: return false
-        cancelledCommands += commandId
-        runCatching { active.remote.close() }
-        runCatching { active.session.close() }
-        runCatching { active.ssh.disconnect() }
-        runCatching { active.ssh.close() }
-        return true
-    }
+    override fun cancel(commandId: String): Boolean = cancelMatching(commandId)
 
     override fun execute(
         profile: SshProfile,
@@ -75,6 +59,7 @@ class SshjCommandExecutor : SshCommandExecutor {
         var remote: Session.Command? = null
         var writer: BufferedWriter? = null
         var discoveredFingerprint: String? = null
+        val controlKey = commandId ?: command
         send(CommandEvent.Connecting)
 
         try {
@@ -128,11 +113,15 @@ class SshjCommandExecutor : SshCommandExecutor {
             val effectiveCommand = if (interactiveSudo) interactiveSudoCommand(command) else command
             remote = withContext(Dispatchers.IO) { session!!.exec(effectiveCommand) }
             writer = remote!!.outputStream.bufferedWriter()
-
-            if (commandId != null) {
-                activeCommands[commandId] = ActiveCommand(connected, session!!, remote!!, writer!!)
-                cancelledCommands.remove(commandId)
-            }
+            cancelledCommands.remove(controlKey)
+            activeCommands[controlKey] = ActiveCommand(
+                originalCommand = command,
+                ssh = connected,
+                session = session!!,
+                remote = remote!!,
+                writer = writer!!,
+                emit = { event -> trySend(event); Unit },
+            )
 
             if (stdinText != null) {
                 withContext(Dispatchers.IO) {
@@ -160,19 +149,17 @@ class SshjCommandExecutor : SshCommandExecutor {
             withContext(Dispatchers.IO) { remote!!.join() }
             stdoutJob.join()
             stderrJob.join()
-            val exitCode = if (commandId != null && cancelledCommands.contains(commandId)) 130 else remote!!.exitStatus ?: -1
+            val exitCode = if (cancelledCommands.contains(controlKey)) 130 else remote!!.exitStatus ?: -1
             trySend(CommandEvent.Completed(exitCode))
         } catch (error: Exception) {
-            if (commandId != null && cancelledCommands.contains(commandId)) {
+            if (cancelledCommands.contains(controlKey)) {
                 trySend(CommandEvent.Completed(130))
             } else {
                 trySend(CommandEvent.ConnectionFailed(error.message ?: error::class.java.simpleName))
             }
         } finally {
-            if (commandId != null) {
-                activeCommands.remove(commandId)
-                cancelledCommands.remove(commandId)
-            }
+            activeCommands.remove(controlKey)
+            cancelledCommands.remove(controlKey)
             withContext(Dispatchers.IO) {
                 runCatching { writer?.close() }
                 runCatching { remote?.close() }
@@ -232,5 +219,36 @@ class SshjCommandExecutor : SshCommandExecutor {
 
     companion object {
         private const val SUDO_PROMPT = "POCKETDEV_SUDO_PASSWORD_REQUIRED"
+        private val activeCommands = ConcurrentHashMap<String, ActiveCommand>()
+        private val cancelledCommands = ConcurrentHashMap.newKeySet<String>()
+
+        private fun findActive(commandHint: String): Map.Entry<String, ActiveCommand>? =
+            activeCommands.entries.firstOrNull { (key, active) ->
+                key == commandHint || active.originalCommand == commandHint || active.originalCommand.contains(commandHint)
+            }
+
+        fun sendInputTo(commandHint: String, text: String): Boolean {
+            val entry = findActive(commandHint) ?: return false
+            val active = entry.value
+            val success = runCatching {
+                active.writer.write(text)
+                active.writer.newLine()
+                active.writer.flush()
+            }.isSuccess
+            if (success) active.emit(CommandEvent.SudoPasswordSubmitted)
+            return success
+        }
+
+        fun cancelMatching(commandHint: String): Boolean {
+            val entry = findActive(commandHint) ?: return false
+            val key = entry.key
+            val active = entry.value
+            cancelledCommands += key
+            runCatching { active.remote.close() }
+            runCatching { active.session.close() }
+            runCatching { active.ssh.disconnect() }
+            runCatching { active.ssh.close() }
+            return true
+        }
     }
 }
