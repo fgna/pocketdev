@@ -11,6 +11,7 @@ import de.fgna.pocketdev.data.SshProfileRepository
 import de.fgna.pocketdev.project.ProjectAction
 import de.fgna.pocketdev.project.ProjectCommandBuilder
 import de.fgna.pocketdev.project.ProjectConfig
+import de.fgna.pocketdev.project.ProjectProvisioning
 import de.fgna.pocketdev.ssh.AuthMode
 import de.fgna.pocketdev.ssh.CommandEvent
 import de.fgna.pocketdev.ssh.CommandStateReducer
@@ -47,6 +48,11 @@ data class ProjectSessionState(
     val artifact: ArtifactDownloadState = ArtifactDownloadState(),
 )
 
+data class ProjectCreateRequest(
+    val projectId: String,
+    val command: String,
+)
+
 enum class GitKeyStatus {
     UNKNOWN,
     CHECKING,
@@ -71,6 +77,7 @@ data class PocketDevState(
     val gitKeyStatus: GitKeyStatus = GitKeyStatus.UNKNOWN,
     val gitKeyMessage: String? = null,
     val gitKeyUnlockOpen: Boolean = false,
+    val pendingProjectCreate: ProjectCreateRequest? = null,
 ) {
     val command: CommandUiState
         get() = project?.let { sessions[it.id]?.command } ?: CommandUiState(command = "pwd")
@@ -221,6 +228,7 @@ class PocketDevViewModel(
                 sessions = ensureSessions(collection.projects, it.sessions - projectId),
                 projectEditorOpen = false,
                 projectEditorId = null,
+                pendingProjectCreate = it.pendingProjectCreate?.takeUnless { request -> request.projectId == projectId },
             )
         }
         clearPersistedSession(projectId)
@@ -385,6 +393,71 @@ class PocketDevViewModel(
                     gitKeyMessage = if (ready) null else connectionError ?: stderr.trim().ifBlank { "The Git key could not be unlocked." },
                 )
             }
+            if (ready && _state.value.pendingProjectCreate != null) createPendingProject()
+        }
+    }
+
+    fun dismissProjectCreate() = updateState { it.copy(pendingProjectCreate = null) }
+
+    fun createPendingProject() {
+        val request = _state.value.pendingProjectCreate ?: return
+        val project = _state.value.projects.firstOrNull { it.id == request.projectId } ?: run {
+            dismissProjectCreate()
+            return
+        }
+        if (project.githubRepository.isNotBlank() && _state.value.gitKeyStatus != GitKeyStatus.READY) {
+            updateState { it.copy(gitKeyUnlockOpen = true, gitKeyMessage = null) }
+            return
+        }
+        val profile = _state.value.profile ?: return
+        val secret = repository.loadSecret()
+        if (secret.isNullOrBlank()) return
+        val command = runCatching { ProjectProvisioning.createCommand(project) }.getOrElse { error ->
+            updateSession(project.id) { session ->
+                session.copy(command = session.command.copy(connectionError = error.message ?: "Project could not be created."))
+            }
+            dismissProjectCreate()
+            return
+        }
+
+        updateState { it.copy(pendingProjectCreate = null) }
+        updateSession(project.id) {
+            it.copy(command = it.command.copy(running = true, stdout = "", stderr = "", exitCode = null, connectionError = null))
+        }
+        viewModelScope.launch {
+            var stdout = ""
+            var exitCode: Int? = null
+            var connectionError: String? = null
+            executor.execute(profile, secret, GitSshAgent.wrap(command)).collect { event ->
+                when (event) {
+                    is CommandEvent.Output -> {
+                        if (event.stream == OutputStreamKind.STDOUT) stdout += event.text
+                        updateSession(project.id) { session ->
+                            session.copy(command = CommandStateReducer.reduce(session.command, event))
+                        }
+                    }
+                    is CommandEvent.Completed -> {
+                        exitCode = event.exitCode
+                        updateSession(project.id) { session ->
+                            session.copy(command = CommandStateReducer.reduce(session.command, event))
+                        }
+                    }
+                    is CommandEvent.ConnectionFailed -> {
+                        connectionError = event.message
+                        updateSession(project.id) { session ->
+                            session.copy(command = CommandStateReducer.reduce(session.command, event))
+                        }
+                    }
+                    else -> Unit
+                }
+            }
+            refreshGitKeyStatus()
+            if (connectionError == null && exitCode == 0 && stdout.contains(ProjectProvisioning.CREATED_MARKER)) {
+                updateSession(project.id) { session ->
+                    session.copy(command = session.command.copy(command = request.command, running = false))
+                }
+                runCommandFor(project.id, skipProjectCheck = true)
+            }
         }
     }
 
@@ -398,8 +471,9 @@ class PocketDevViewModel(
         runCommandFor(projectId)
     }
 
-    private fun runCommandFor(projectId: String) {
+    private fun runCommandFor(projectId: String, skipProjectCheck: Boolean = false) {
         val profile = _state.value.profile ?: return
+        val project = _state.value.projects.firstOrNull { it.id == projectId } ?: return
         val secret = repository.loadSecret()
         if (secret.isNullOrBlank()) {
             updateSession(projectId) { it.copy(command = it.command.copy(connectionError = "No authentication secret is stored.")) }
@@ -409,6 +483,57 @@ class PocketDevViewModel(
         if (session.command.running) return
         val commandText = session.command.command.trim()
         if (commandText.isEmpty()) return
+
+        if (!skipProjectCheck) {
+            updateSession(projectId) {
+                it.copy(command = it.command.copy(running = true, stdout = "", stderr = "", exitCode = null, connectionError = null))
+            }
+            viewModelScope.launch {
+                var stdout = ""
+                var stderr = ""
+                var exitCode: Int? = null
+                var connectionError: String? = null
+                var hostKeyPending = false
+                executor.execute(profile, secret, GitSshAgent.wrap(ProjectProvisioning.checkCommand(project))).collect { event ->
+                    when (event) {
+                        is CommandEvent.Output -> when (event.stream) {
+                            OutputStreamKind.STDOUT -> stdout += event.text
+                            OutputStreamKind.STDERR -> stderr += event.text
+                        }
+                        is CommandEvent.Completed -> exitCode = event.exitCode
+                        is CommandEvent.ConnectionFailed -> connectionError = event.message
+                        is CommandEvent.HostKeyTrustRequired -> {
+                            hostKeyPending = true
+                            updateState {
+                                it.copy(
+                                    pendingHostKeyFingerprint = event.fingerprint,
+                                    pendingHostKeyProjectId = projectId,
+                                )
+                            }
+                        }
+                        else -> Unit
+                    }
+                }
+                updateSession(projectId) { current -> current.copy(command = current.command.copy(running = false)) }
+                when {
+                    hostKeyPending -> Unit
+                    connectionError != null -> updateSession(projectId) { current ->
+                        current.copy(command = current.command.copy(connectionError = connectionError))
+                    }
+                    exitCode != 0 -> updateSession(projectId) { current ->
+                        current.copy(command = current.command.copy(connectionError = stderr.trim().ifBlank { "Could not inspect the project folder." }))
+                    }
+                    stdout.contains(ProjectProvisioning.MISSING_MARKER) -> updateState {
+                        it.copy(pendingProjectCreate = ProjectCreateRequest(projectId = projectId, command = commandText))
+                    }
+                    stdout.contains(ProjectProvisioning.EXISTS_MARKER) -> runCommandFor(projectId, skipProjectCheck = true)
+                    else -> updateSession(projectId) { current ->
+                        current.copy(command = current.command.copy(connectionError = "Could not determine whether the project folder exists."))
+                    }
+                }
+            }
+            return
+        }
 
         updateSession(projectId) {
             it.copy(command = it.command.copy(running = true, stdout = "", stderr = "", exitCode = null, connectionError = null))
