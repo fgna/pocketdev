@@ -15,6 +15,8 @@ import de.fgna.pocketdev.ssh.AuthMode
 import de.fgna.pocketdev.ssh.CommandEvent
 import de.fgna.pocketdev.ssh.CommandStateReducer
 import de.fgna.pocketdev.ssh.CommandUiState
+import de.fgna.pocketdev.ssh.GitSshAgent
+import de.fgna.pocketdev.ssh.OutputStreamKind
 import de.fgna.pocketdev.ssh.SshProfile
 import de.fgna.pocketdev.ssh.SshjCommandExecutor
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +47,14 @@ data class ProjectSessionState(
     val artifact: ArtifactDownloadState = ArtifactDownloadState(),
 )
 
+enum class GitKeyStatus {
+    UNKNOWN,
+    CHECKING,
+    LOCKED,
+    READY,
+    ERROR,
+}
+
 data class PocketDevState(
     val profile: SshProfile? = null,
     val hasStoredSecret: Boolean = false,
@@ -58,6 +68,9 @@ data class PocketDevState(
     val projectEditor: ProjectEditorState = ProjectEditorState(),
     val pendingHostKeyFingerprint: String? = null,
     val pendingHostKeyProjectId: String? = null,
+    val gitKeyStatus: GitKeyStatus = GitKeyStatus.UNKNOWN,
+    val gitKeyMessage: String? = null,
+    val gitKeyUnlockOpen: Boolean = false,
 ) {
     val command: CommandUiState
         get() = project?.let { sessions[it.id]?.command } ?: CommandUiState(command = "pwd")
@@ -77,6 +90,10 @@ class PocketDevViewModel(
 
     private val _state = MutableStateFlow(loadInitialState())
     val state: StateFlow<PocketDevState> = _state.asStateFlow()
+
+    init {
+        refreshGitKeyStatus()
+    }
 
     fun openEditor() {
         val current = _state.value.profile
@@ -117,8 +134,11 @@ class PocketDevViewModel(
                 hasStoredSecret = !repository.loadSecret().isNullOrBlank(),
                 editorOpen = false,
                 editor = editor.copy(secret = ""),
+                gitKeyStatus = GitKeyStatus.UNKNOWN,
+                gitKeyMessage = null,
             )
         }
+        refreshGitKeyStatus()
     }
 
     fun openProjectEditor() {
@@ -272,11 +292,100 @@ class PocketDevViewModel(
         val trusted = profile.copy(hostKeySha256 = fingerprint)
         repository.save(trusted, null)
         updateState { it.copy(profile = trusted, pendingHostKeyFingerprint = null, pendingHostKeyProjectId = null) }
+        refreshGitKeyStatus()
         if (projectId != null) runCommandFor(projectId)
     }
 
     fun rejectPendingHostKey() = updateState {
         it.copy(pendingHostKeyFingerprint = null, pendingHostKeyProjectId = null)
+    }
+
+    fun openGitKeyUnlock() = updateState {
+        it.copy(gitKeyUnlockOpen = true, gitKeyMessage = null)
+    }
+
+    fun closeGitKeyUnlock() = updateState { it.copy(gitKeyUnlockOpen = false) }
+
+    fun refreshGitKeyStatus() {
+        val profile = _state.value.profile ?: return
+        val secret = repository.loadSecret() ?: return
+        if (secret.isBlank() || profile.hostKeySha256.isBlank()) return
+        if (_state.value.gitKeyStatus == GitKeyStatus.CHECKING) return
+
+        updateState { it.copy(gitKeyStatus = GitKeyStatus.CHECKING, gitKeyMessage = null) }
+        viewModelScope.launch {
+            var stdout = ""
+            var stderr = ""
+            var connectionError: String? = null
+            executor.execute(profile, secret, GitSshAgent.statusCommand()).collect { event ->
+                when (event) {
+                    is CommandEvent.Output -> when (event.stream) {
+                        OutputStreamKind.STDOUT -> stdout += event.text
+                        OutputStreamKind.STDERR -> stderr += event.text
+                    }
+                    is CommandEvent.ConnectionFailed -> connectionError = event.message
+                    else -> Unit
+                }
+            }
+            val status = when {
+                connectionError != null -> GitKeyStatus.ERROR
+                stdout.contains("POCKETDEV_GIT_KEY_READY") -> GitKeyStatus.READY
+                stdout.contains("POCKETDEV_GIT_KEY_LOCKED") -> GitKeyStatus.LOCKED
+                else -> GitKeyStatus.ERROR
+            }
+            updateState {
+                it.copy(
+                    gitKeyStatus = status,
+                    gitKeyMessage = when (status) {
+                        GitKeyStatus.ERROR -> connectionError ?: stderr.trim().ifBlank { "Could not inspect the remote SSH agent." }
+                        else -> null
+                    },
+                )
+            }
+        }
+    }
+
+    fun unlockGitKey(passphrase: String) {
+        val profile = _state.value.profile ?: return
+        val secret = repository.loadSecret() ?: return
+        if (passphrase.isBlank() || profile.hostKeySha256.isBlank()) return
+
+        updateState {
+            it.copy(
+                gitKeyUnlockOpen = false,
+                gitKeyStatus = GitKeyStatus.CHECKING,
+                gitKeyMessage = null,
+            )
+        }
+        viewModelScope.launch {
+            var stdout = ""
+            var stderr = ""
+            var exitCode: Int? = null
+            var connectionError: String? = null
+            executor.execute(
+                profile = profile,
+                secret = secret,
+                command = GitSshAgent.unlockCommand(),
+                stdinText = passphrase,
+            ).collect { event ->
+                when (event) {
+                    is CommandEvent.Output -> when (event.stream) {
+                        OutputStreamKind.STDOUT -> stdout += event.text
+                        OutputStreamKind.STDERR -> stderr += event.text
+                    }
+                    is CommandEvent.Completed -> exitCode = event.exitCode
+                    is CommandEvent.ConnectionFailed -> connectionError = event.message
+                    else -> Unit
+                }
+            }
+            val ready = exitCode == 0 && stdout.contains("POCKETDEV_GIT_KEY_READY")
+            updateState {
+                it.copy(
+                    gitKeyStatus = if (ready) GitKeyStatus.READY else GitKeyStatus.LOCKED,
+                    gitKeyMessage = if (ready) null else connectionError ?: stderr.trim().ifBlank { "The Git key could not be unlocked." },
+                )
+            }
+        }
     }
 
     fun setCommand(command: String) {
@@ -306,7 +415,7 @@ class PocketDevViewModel(
         }
 
         viewModelScope.launch {
-            executor.execute(profile, secret, commandText).collect { event ->
+            executor.execute(profile, secret, GitSshAgent.wrap(commandText)).collect { event ->
                 if (event is CommandEvent.HostKeyTrustRequired) {
                     updateState {
                         it.copy(
@@ -323,6 +432,7 @@ class PocketDevViewModel(
                     }
                 }
             }
+            refreshGitKeyStatus()
         }
     }
 
