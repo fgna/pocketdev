@@ -153,7 +153,8 @@ class PocketDevViewModel(
     }
 
     fun openProjectEditor() {
-        val current = _state.value.project
+        val activeId = _state.value.project?.id
+        val current = _state.value.projects.firstOrNull { it.id == activeId } ?: _state.value.project
         if (current == null) {
             openNewProjectEditor()
             return
@@ -198,12 +199,12 @@ class PocketDevViewModel(
             githubRepository = editor.githubRepository.trim(),
         )
         val collection = projectRepository.upsert(project, makeActive = true)
-        val active = collection.activeProject
         updateState {
+            val sessions = ensureSessions(collection.projects, it.sessions)
             it.copy(
                 projects = collection.projects,
-                project = active,
-                sessions = ensureSessions(collection.projects, it.sessions),
+                project = displayProject(collection.activeProject, sessions),
+                sessions = sessions,
                 projectEditorOpen = false,
                 projectEditorId = null,
             )
@@ -214,10 +215,11 @@ class PocketDevViewModel(
         if (_state.value.project?.id == projectId) return
         val collection = projectRepository.setActive(projectId)
         updateState {
+            val sessions = ensureSessions(collection.projects, it.sessions)
             it.copy(
                 projects = collection.projects,
-                project = collection.activeProject,
-                sessions = ensureSessions(collection.projects, it.sessions),
+                project = displayProject(collection.activeProject, sessions),
+                sessions = sessions,
             )
         }
     }
@@ -226,10 +228,11 @@ class PocketDevViewModel(
         val projectId = _state.value.project?.id ?: return
         val collection = projectRepository.delete(projectId)
         updateState {
+            val sessions = ensureSessions(collection.projects, it.sessions - projectId)
             it.copy(
                 projects = collection.projects,
-                project = collection.activeProject,
-                sessions = ensureSessions(collection.projects, it.sessions - projectId),
+                project = displayProject(collection.activeProject, sessions),
+                sessions = sessions,
                 projectEditorOpen = false,
                 projectEditorId = null,
                 pendingProjectCreate = it.pendingProjectCreate?.takeUnless { request -> request.projectId == projectId },
@@ -239,7 +242,8 @@ class PocketDevViewModel(
     }
 
     fun prepareProjectAction(action: ProjectAction): Boolean {
-        val project = _state.value.project ?: return false
+        val activeId = _state.value.project?.id ?: return false
+        val project = _state.value.projects.firstOrNull { it.id == activeId } ?: return false
         val command = runCatching { ProjectCommandBuilder.command(project, action) }
             .getOrElse { error ->
                 updateSession(project.id) { session ->
@@ -253,7 +257,8 @@ class PocketDevViewModel(
 
     fun downloadLatestApk() {
         val profile = _state.value.profile ?: return
-        val project = _state.value.project ?: return
+        val activeId = _state.value.project?.id ?: return
+        val project = _state.value.projects.firstOrNull { it.id == activeId } ?: return
         val projectId = project.id
         val secret = repository.loadSecret()
         if (secret.isNullOrBlank()) {
@@ -613,7 +618,14 @@ class PocketDevViewModel(
     private fun updateSession(projectId: String, transform: (ProjectSessionState) -> ProjectSessionState) {
         _state.update { state ->
             val current = state.sessions[projectId] ?: ProjectSessionState()
-            state.copy(sessions = state.sessions + (projectId to transform(current)))
+            val updated = transform(current)
+            val sessions = state.sessions + (projectId to updated)
+            val displayedProject = if (state.project?.id == projectId) {
+                displayProject(state.projects.firstOrNull { it.id == projectId } ?: state.project, sessions)
+            } else {
+                state.project
+            }
+            state.copy(sessions = sessions, project = displayedProject)
         }
         _state.value.sessions[projectId]?.let { persistSession(projectId, it) }
     }
@@ -628,6 +640,14 @@ class PocketDevViewModel(
         } else {
             existing
         }
+    }
+
+    private fun displayProject(
+        project: ProjectConfig?,
+        sessions: Map<String, ProjectSessionState>,
+    ): ProjectConfig? = project?.let { configured ->
+        val cwd = sessions[configured.id]?.workingDirectory?.takeIf { it.startsWith("/") }
+        if (cwd == null) configured else configured.copy(remotePath = cwd)
     }
 
     private fun persistSession(projectId: String, session: ProjectSessionState) {
@@ -690,7 +710,7 @@ class PocketDevViewModel(
             profile = stored?.profile,
             hasStoredSecret = stored?.hasSecret == true,
             projects = projectCollection.projects,
-            project = projectCollection.activeProject,
+            project = displayProject(projectCollection.activeProject, sessions),
             sessions = sessions,
         )
     }
