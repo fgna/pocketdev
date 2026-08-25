@@ -24,7 +24,7 @@ object ProjectProvisioning {
             val sshUrl = "git@github.com:$repo.git"
             "mkdir -p ${ProjectCommandBuilder.shellQuote(parent)} && git clone ${ProjectCommandBuilder.shellQuote(sshUrl)} $quotedPath"
         }
-        return "$create && printf '$CREATED_MARKER\\n'"
+        return "$create && test -d $quotedPath && printf '$CREATED_MARKER %s\\n' $quotedPath"
     }
 
     private fun validatedPath(project: ProjectConfig): String {
