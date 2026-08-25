@@ -33,6 +33,20 @@ class ProjectCommandBuilderTest {
     }
 
     @Test
+    fun arbitraryCommandRunsInsideProjectDirectory() {
+        assertEquals(
+            "cd '/home/freya/Projects/my task'\"'\"'s OS' && pwd",
+            ProjectCommandBuilder.inProject(project, "pwd"),
+        )
+    }
+
+    @Test
+    fun alreadyScopedCommandIsNotPrefixedTwice() {
+        val scoped = ProjectCommandBuilder.command(project, ProjectAction.GIT_STATUS)
+        assertEquals(scoped, ProjectCommandBuilder.inProject(project, scoped))
+    }
+
+    @Test
     fun blankActionCommandIsRejected() {
         assertThrows(IllegalArgumentException::class.java) {
             ProjectCommandBuilder.command(project.copy(testCommand = "   "), ProjectAction.TEST)
@@ -43,6 +57,9 @@ class ProjectCommandBuilderTest {
     fun relativeProjectPathIsRejected() {
         assertThrows(IllegalArgumentException::class.java) {
             ProjectCommandBuilder.command(project.copy(remotePath = "Projects/taskos"), ProjectAction.GIT_STATUS)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            ProjectCommandBuilder.inProject(project.copy(remotePath = "Projects/taskos"), "pwd")
         }
     }
 }
