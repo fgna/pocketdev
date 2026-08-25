@@ -48,7 +48,7 @@ object ProjectCommandBuilder {
         val marker = "$CWD_MARKER_PREFIX$token:"
         return """
             cd ${shellQuote(path)} && {
-              trap 'rc=$?; printf "\\n$marker%s\\n" "$PWD"; exit "$rc"' EXIT
+              trap 'rc=${'$'}?; printf "\\n$marker%s\\n" "${'$'}PWD"; exit "${'$'}rc"' EXIT
               $trimmedCommand
             }
         """.trimIndent()
