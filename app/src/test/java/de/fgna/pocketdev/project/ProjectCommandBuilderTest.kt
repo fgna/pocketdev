@@ -38,6 +38,7 @@ class ProjectCommandBuilderTest {
         assertTrue(command.contains("cd '/home/freya/Projects/taskos'"))
         assertTrue(command.contains("__POCKETDEV_CWD__project-1:"))
         assertTrue(command.contains("rc=\$?"))
+        assertTrue(command.contains("\$PWD"))
         assertTrue(command.contains("exit \"\$rc\""))
     }
 
