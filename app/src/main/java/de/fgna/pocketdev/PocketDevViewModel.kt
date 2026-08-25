@@ -46,6 +46,7 @@ data class ProjectEditorState(
 data class ProjectSessionState(
     val command: CommandUiState = CommandUiState(command = "pwd"),
     val artifact: ArtifactDownloadState = ArtifactDownloadState(),
+    val workingDirectory: String? = null,
 )
 
 data class ProjectCreateRequest(
@@ -84,6 +85,9 @@ data class PocketDevState(
 
     val artifact: ArtifactDownloadState
         get() = project?.let { sessions[it.id]?.artifact } ?: ArtifactDownloadState()
+
+    val currentWorkingDirectory: String?
+        get() = project?.let { sessions[it.id]?.workingDirectory ?: it.remotePath }
 }
 
 class PocketDevViewModel(
@@ -459,7 +463,10 @@ class PocketDevViewModel(
             refreshGitKeyStatus()
             if (connectionError == null && exitCode == 0 && stdout.contains(ProjectProvisioning.CREATED_MARKER)) {
                 updateSession(project.id) { session ->
-                    session.copy(command = session.command.copy(command = request.command, running = false))
+                    session.copy(
+                        workingDirectory = project.remotePath,
+                        command = session.command.copy(command = request.command, running = false),
+                    )
                 }
                 runCommandFor(project.id, skipProjectCheck = true)
             }
@@ -545,13 +552,18 @@ class PocketDevViewModel(
             return
         }
 
-        val projectCommand = runCatching { ProjectCommandBuilder.inProject(project, commandText) }
-            .getOrElse { error ->
-                updateSession(projectId) { current ->
-                    current.copy(command = current.command.copy(running = false, connectionError = error.message ?: "Project command is invalid."))
-                }
-                return
+        val workingDirectory = session.workingDirectory
+            ?.trim()
+            ?.takeIf { it.startsWith("/") }
+            ?: project.remotePath
+        val projectCommand = runCatching {
+            ProjectCommandBuilder.trackedInDirectory(workingDirectory, commandText, projectId)
+        }.getOrElse { error ->
+            updateSession(projectId) { current ->
+                current.copy(command = current.command.copy(running = false, connectionError = error.message ?: "Project command is invalid."))
             }
+            return
+        }
 
         updateSession(projectId) {
             it.copy(command = it.command.copy(running = true, stdout = "", stderr = "", exitCode = null, connectionError = null))
@@ -573,6 +585,16 @@ class PocketDevViewModel(
                     }
                     updateSession(projectId) { sessionState ->
                         sessionState.copy(command = sessionState.command.copy(running = false))
+                    }
+                } else if (event is CommandEvent.Completed) {
+                    updateSession(projectId) { sessionState ->
+                        val reportedCwd = ProjectCommandBuilder.extractWorkingDirectory(sessionState.command.stdout, projectId)
+                        val cleanedStdout = ProjectCommandBuilder.stripWorkingDirectoryMarker(sessionState.command.stdout, projectId)
+                        val cleanedCommand = sessionState.command.copy(stdout = cleanedStdout)
+                        sessionState.copy(
+                            workingDirectory = reportedCwd ?: sessionState.workingDirectory ?: project.remotePath,
+                            command = CommandStateReducer.reduce(cleanedCommand, event),
+                        )
                     }
                 } else {
                     updateSession(projectId) { sessionState ->
@@ -600,7 +622,12 @@ class PocketDevViewModel(
         projects: List<ProjectConfig>,
         current: Map<String, ProjectSessionState>,
     ): Map<String, ProjectSessionState> = projects.associate { project ->
-        project.id to (current[project.id] ?: restoreSession(project.id))
+        val existing = current[project.id] ?: restoreSession(project.id, project.remotePath)
+        project.id to if (existing.workingDirectory.isNullOrBlank()) {
+            existing.copy(workingDirectory = project.remotePath)
+        } else {
+            existing
+        }
     }
 
     private fun persistSession(projectId: String, session: ProjectSessionState) {
@@ -614,9 +641,10 @@ class PocketDevViewModel(
         savedStateHandle[prefix + "artifactRemote"] = session.artifact.remotePath
         savedStateHandle[prefix + "artifactLocal"] = session.artifact.localPath
         savedStateHandle[prefix + "artifactError"] = session.artifact.error
+        savedStateHandle[prefix + "workingDirectory"] = session.workingDirectory
     }
 
-    private fun restoreSession(projectId: String): ProjectSessionState {
+    private fun restoreSession(projectId: String, fallbackWorkingDirectory: String): ProjectSessionState {
         val prefix = "session.$projectId."
         val wasRunning = savedStateHandle.get<Boolean>(prefix + "running") == true
         return ProjectSessionState(
@@ -638,6 +666,9 @@ class PocketDevViewModel(
                 localPath = savedStateHandle.get<String>(prefix + "artifactLocal"),
                 error = savedStateHandle.get<String>(prefix + "artifactError"),
             ),
+            workingDirectory = savedStateHandle.get<String>(prefix + "workingDirectory")
+                ?.takeIf { it.startsWith("/") }
+                ?: fallbackWorkingDirectory,
         )
     }
 
@@ -645,14 +676,16 @@ class PocketDevViewModel(
         val prefix = "session.$projectId."
         listOf(
             "command", "running", "stdout", "stderr", "exitCode", "connectionError",
-            "artifactRemote", "artifactLocal", "artifactError",
+            "artifactRemote", "artifactLocal", "artifactError", "workingDirectory",
         ).forEach { key -> savedStateHandle.remove<Any>(prefix + key) }
     }
 
     private fun loadInitialState(): PocketDevState {
         val stored = repository.load()
         val projectCollection = projectRepository.load()
-        val sessions = projectCollection.projects.associate { project -> project.id to restoreSession(project.id) }
+        val sessions = projectCollection.projects.associate { project ->
+            project.id to restoreSession(project.id, project.remotePath)
+        }
         return PocketDevState(
             profile = stored?.profile,
             hasStoredSecret = stored?.hasSecret == true,
