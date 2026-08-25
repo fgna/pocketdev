@@ -428,7 +428,12 @@ class PocketDevViewModel(
             var stdout = ""
             var exitCode: Int? = null
             var connectionError: String? = null
-            executor.execute(profile, secret, GitSshAgent.wrap(command)).collect { event ->
+            executor.execute(
+                profile = profile,
+                secret = secret,
+                command = GitSshAgent.wrap(command),
+                commandId = project.id,
+            ).collect { event ->
                 when (event) {
                     is CommandEvent.Output -> {
                         if (event.stream == OutputStreamKind.STDOUT) stdout += event.text
@@ -494,7 +499,12 @@ class PocketDevViewModel(
                 var exitCode: Int? = null
                 var connectionError: String? = null
                 var hostKeyPending = false
-                executor.execute(profile, secret, GitSshAgent.wrap(ProjectProvisioning.checkCommand(project))).collect { event ->
+                executor.execute(
+                    profile = profile,
+                    secret = secret,
+                    command = GitSshAgent.wrap(ProjectProvisioning.checkCommand(project)),
+                    commandId = projectId,
+                ).collect { event ->
                     when (event) {
                         is CommandEvent.Output -> when (event.stream) {
                             OutputStreamKind.STDOUT -> stdout += event.text
@@ -535,12 +545,25 @@ class PocketDevViewModel(
             return
         }
 
+        val projectCommand = runCatching { ProjectCommandBuilder.inProject(project, commandText) }
+            .getOrElse { error ->
+                updateSession(projectId) { current ->
+                    current.copy(command = current.command.copy(running = false, connectionError = error.message ?: "Project command is invalid."))
+                }
+                return
+            }
+
         updateSession(projectId) {
             it.copy(command = it.command.copy(running = true, stdout = "", stderr = "", exitCode = null, connectionError = null))
         }
 
         viewModelScope.launch {
-            executor.execute(profile, secret, GitSshAgent.wrap(commandText)).collect { event ->
+            executor.execute(
+                profile = profile,
+                secret = secret,
+                command = GitSshAgent.wrap(projectCommand),
+                commandId = projectId,
+            ).collect { event ->
                 if (event is CommandEvent.HostKeyTrustRequired) {
                     updateState {
                         it.copy(
