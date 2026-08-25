@@ -21,6 +21,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,6 +31,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.fgna.pocketdev.ssh.SshjCommandExecutor
 import de.fgna.pocketdev.ui.PocketDevTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class InteractiveMainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,8 +51,16 @@ class InteractiveMainActivity : ComponentActivity() {
 private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val command = state.command
     val projectPath = state.project?.remotePath.orEmpty()
+
+    suspend fun cancelActiveCommand(): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            (projectPath.isNotBlank() && SshjCommandExecutor.cancelMatching(projectPath)) ||
+                SshjCommandExecutor.cancelMatching(command.command)
+        }.getOrDefault(false)
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         PocketDevApp(vm)
@@ -56,11 +68,11 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
         if (command.running && !command.awaitingSudoPassword) {
             Button(
                 onClick = {
-                    val stopped =
-                        (projectPath.isNotBlank() && SshjCommandExecutor.cancelMatching(projectPath)) ||
-                            SshjCommandExecutor.cancelMatching(command.command)
-                    if (!stopped) {
-                        Toast.makeText(context, "Active remote command was not found.", Toast.LENGTH_SHORT).show()
+                    scope.launch {
+                        val stopped = cancelActiveCommand()
+                        if (!stopped) {
+                            Toast.makeText(context, "Active remote command was not found.", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 },
                 modifier = Modifier
@@ -76,16 +88,22 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     if (command.awaitingSudoPassword) {
         SudoPasswordDialog(
             onSubmit = { password ->
-                val sent =
-                    (projectPath.isNotBlank() && SshjCommandExecutor.sendInputTo(projectPath, password)) ||
-                        SshjCommandExecutor.sendInputTo(command.command, password)
-                if (!sent) {
-                    Toast.makeText(context, "The sudo prompt is no longer active.", Toast.LENGTH_SHORT).show()
+                scope.launch {
+                    val sent = withContext(Dispatchers.IO) {
+                        runCatching {
+                            (projectPath.isNotBlank() && SshjCommandExecutor.sendInputTo(projectPath, password)) ||
+                                SshjCommandExecutor.sendInputTo(command.command, password)
+                        }.getOrDefault(false)
+                    }
+                    if (!sent) {
+                        Toast.makeText(context, "The sudo prompt is no longer active.", Toast.LENGTH_SHORT).show()
+                    }
                 }
             },
             onCancel = {
-                (projectPath.isNotBlank() && SshjCommandExecutor.cancelMatching(projectPath)) ||
-                    SshjCommandExecutor.cancelMatching(command.command)
+                scope.launch {
+                    cancelActiveCommand()
+                }
             },
         )
     }
