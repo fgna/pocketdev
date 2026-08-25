@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import de.fgna.pocketdev.ssh.GitSshAgent
 import de.fgna.pocketdev.ssh.SshjCommandExecutor
 import de.fgna.pocketdev.ui.PocketDevTheme
 import kotlinx.coroutines.Dispatchers
@@ -53,12 +54,11 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val command = state.command
-    val projectPath = state.project?.remotePath.orEmpty()
+    val activeCommandKey = GitSshAgent.wrap(command.command.trim())
 
     suspend fun cancelActiveCommand(): Boolean = withContext(Dispatchers.IO) {
         runCatching {
-            (projectPath.isNotBlank() && SshjCommandExecutor.cancelMatching(projectPath)) ||
-                SshjCommandExecutor.cancelMatching(command.command)
+            SshjCommandExecutor.cancelMatching(activeCommandKey)
         }.getOrDefault(false)
     }
 
@@ -91,8 +91,7 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
                 scope.launch {
                     val sent = withContext(Dispatchers.IO) {
                         runCatching {
-                            (projectPath.isNotBlank() && SshjCommandExecutor.sendInputTo(projectPath, password)) ||
-                                SshjCommandExecutor.sendInputTo(command.command, password)
+                            SshjCommandExecutor.sendInputTo(activeCommandKey, password)
                         }.getOrDefault(false)
                     }
                     if (!sent) {
