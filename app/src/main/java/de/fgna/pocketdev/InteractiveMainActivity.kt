@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -53,7 +54,10 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val command = state.command
-    val activeProjectId = state.project?.id.orEmpty()
+    val activeProject = state.project
+    val activeProjectId = activeProject?.id.orEmpty()
+    val projectBusy = command.running || state.artifact.downloading
+    var confirmProjectRemoval by remember(activeProjectId) { mutableStateOf(false) }
 
     suspend fun cancelActiveCommand(): Boolean = withContext(Dispatchers.IO) {
         runCatching {
@@ -63,6 +67,19 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
 
     Box(modifier = Modifier.fillMaxSize()) {
         PocketDevApp(vm)
+
+        if (activeProject != null) {
+            OutlinedButton(
+                onClick = { confirmProjectRemoval = true },
+                enabled = !projectBusy,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .navigationBarsPadding()
+                    .padding(start = 12.dp, bottom = 104.dp),
+            ) {
+                Text("Remove project")
+            }
+        }
 
         if (command.running && !command.awaitingSudoPassword) {
             Button(
@@ -82,6 +99,36 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
                 Text("Stop · Ctrl-C")
             }
         }
+    }
+
+    if (confirmProjectRemoval && activeProject != null) {
+        AlertDialog(
+            onDismissRequest = { confirmProjectRemoval = false },
+            title = { Text("Remove project from PocketDev?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(activeProject.name, style = MaterialTheme.typography.titleMedium)
+                    Text(activeProject.remotePath, style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "This removes only the saved PocketDev project and its local session state. The folder on the server and the GitHub repository are not deleted.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmProjectRemoval = false
+                        vm.deleteCurrentProject()
+                    },
+                ) {
+                    Text("Remove", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmProjectRemoval = false }) { Text("Cancel") }
+            },
+        )
     }
 
     if (command.awaitingSudoPassword) {
