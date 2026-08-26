@@ -47,6 +47,7 @@ data class ProjectSessionState(
     val command: CommandUiState = CommandUiState(command = "pwd"),
     val artifact: ArtifactDownloadState = ArtifactDownloadState(),
     val workingDirectory: String? = null,
+    val gitBranch: String? = null,
 )
 
 data class ProjectCreateRequest(
@@ -88,6 +89,9 @@ data class PocketDevState(
 
     val currentWorkingDirectory: String?
         get() = project?.let { sessions[it.id]?.workingDirectory ?: it.remotePath }
+
+    val currentGitBranch: String?
+        get() = project?.let { sessions[it.id]?.gitBranch }
 }
 
 class PocketDevViewModel(
@@ -104,6 +108,7 @@ class PocketDevViewModel(
 
     init {
         refreshGitKeyStatus()
+        _state.value.project?.id?.let(::refreshGitBranch)
     }
 
     fun openEditor() {
@@ -150,6 +155,7 @@ class PocketDevViewModel(
             )
         }
         refreshGitKeyStatus()
+        _state.value.project?.id?.let(::refreshGitBranch)
     }
 
     fun openProjectEditor() {
@@ -185,7 +191,7 @@ class PocketDevViewModel(
     fun closeProjectEditor() = updateState { it.copy(projectEditorOpen = false) }
 
     fun updateProjectEditor(transform: (ProjectEditorState) -> ProjectEditorState) =
-        updateState { it.copy(projectEditor = transform(it.projectEditor)) }
+        updateState { it.copy(projectEditor = transform(it.editor)) }
 
     fun saveProjectEditor() {
         val state = _state.value
@@ -209,10 +215,14 @@ class PocketDevViewModel(
                 projectEditorId = null,
             )
         }
+        collection.activeProject?.id?.let(::refreshGitBranch)
     }
 
     fun selectProject(projectId: String) {
-        if (_state.value.project?.id == projectId) return
+        if (_state.value.project?.id == projectId) {
+            refreshGitBranch(projectId)
+            return
+        }
         val collection = projectRepository.setActive(projectId)
         updateState {
             val sessions = ensureSessions(collection.projects, it.sessions)
@@ -222,6 +232,7 @@ class PocketDevViewModel(
                 sessions = sessions,
             )
         }
+        refreshGitBranch(projectId)
     }
 
     fun deleteCurrentProject() {
@@ -239,6 +250,7 @@ class PocketDevViewModel(
             )
         }
         clearPersistedSession(projectId)
+        collection.activeProject?.id?.let(::refreshGitBranch)
     }
 
     fun prepareProjectAction(action: ProjectAction): Boolean {
@@ -362,6 +374,40 @@ class PocketDevViewModel(
         }
     }
 
+    private fun refreshGitBranch(projectId: String) {
+        val profile = _state.value.profile ?: return
+        if (profile.hostKeySha256.isBlank()) return
+        val project = _state.value.projects.firstOrNull { it.id == projectId } ?: return
+        val secret = repository.loadSecret()?.takeIf { it.isNotBlank() } ?: return
+        val session = _state.value.sessions[projectId] ?: return
+        if (session.command.running) return
+        val cwd = session.workingDirectory?.takeIf { it.startsWith("/") } ?: project.remotePath
+        val quotedCwd = ProjectCommandBuilder.shellQuote(cwd)
+        val probe = "cd $quotedCwd 2>/dev/null && { branch=\$(git branch --show-current 2>/dev/null || true); if [ -n \"\$branch\" ]; then printf '%s\\n' \"\$branch\"; elif git rev-parse --is-inside-work-tree >/dev/null 2>&1; then sha=\$(git rev-parse --short HEAD 2>/dev/null || true); [ -n \"\$sha\" ] && printf 'detached@%s\\n' \"\$sha\"; fi; }"
+
+        viewModelScope.launch {
+            var stdout = ""
+            var exitCode: Int? = null
+            var failed = false
+            executor.execute(
+                profile = profile,
+                secret = secret,
+                command = GitSshAgent.wrap(probe),
+            ).collect { event ->
+                when (event) {
+                    is CommandEvent.Output -> if (event.stream == OutputStreamKind.STDOUT) stdout += event.text
+                    is CommandEvent.Completed -> exitCode = event.exitCode
+                    is CommandEvent.ConnectionFailed -> failed = true
+                    else -> Unit
+                }
+            }
+            if (!failed && (exitCode == 0 || exitCode == null)) {
+                val branch = stdout.lineSequence().map(String::trim).lastOrNull { it.isNotBlank() }
+                updateSession(projectId) { current -> current.copy(gitBranch = branch) }
+            }
+        }
+    }
+
     fun unlockGitKey(passphrase: String) {
         val profile = _state.value.profile ?: return
         val secret = repository.loadSecret() ?: return
@@ -402,7 +448,10 @@ class PocketDevViewModel(
                     gitKeyMessage = if (ready) null else connectionError ?: stderr.trim().ifBlank { "The Git key could not be unlocked." },
                 )
             }
-            if (ready && _state.value.pendingProjectCreate != null) createPendingProject()
+            if (ready) {
+                if (_state.value.pendingProjectCreate != null) createPendingProject()
+                _state.value.project?.id?.let(::refreshGitBranch)
+            }
         }
     }
 
@@ -608,6 +657,7 @@ class PocketDevViewModel(
                 }
             }
             refreshGitKeyStatus()
+            refreshGitBranch(projectId)
         }
     }
 
@@ -646,8 +696,13 @@ class PocketDevViewModel(
         project: ProjectConfig?,
         sessions: Map<String, ProjectSessionState>,
     ): ProjectConfig? = project?.let { configured ->
-        val cwd = sessions[configured.id]?.workingDirectory?.takeIf { it.startsWith("/") }
-        if (cwd == null) configured else configured.copy(remotePath = cwd)
+        val session = sessions[configured.id]
+        val cwd = session?.workingDirectory?.takeIf { it.startsWith("/") }
+        val branch = session?.gitBranch?.takeIf { it.isNotBlank() } ?: "—"
+        configured.copy(
+            name = "${configured.name} · branch · $branch",
+            remotePath = cwd ?: configured.remotePath,
+        )
     }
 
     private fun persistSession(projectId: String, session: ProjectSessionState) {
@@ -662,6 +717,7 @@ class PocketDevViewModel(
         savedStateHandle[prefix + "artifactLocal"] = session.artifact.localPath
         savedStateHandle[prefix + "artifactError"] = session.artifact.error
         savedStateHandle[prefix + "workingDirectory"] = session.workingDirectory
+        savedStateHandle[prefix + "gitBranch"] = session.gitBranch
     }
 
     private fun restoreSession(projectId: String, fallbackWorkingDirectory: String): ProjectSessionState {
@@ -689,6 +745,7 @@ class PocketDevViewModel(
             workingDirectory = savedStateHandle.get<String>(prefix + "workingDirectory")
                 ?.takeIf { it.startsWith("/") }
                 ?: fallbackWorkingDirectory,
+            gitBranch = savedStateHandle.get<String>(prefix + "gitBranch")?.takeIf { it.isNotBlank() },
         )
     }
 
@@ -696,7 +753,7 @@ class PocketDevViewModel(
         val prefix = "session.$projectId."
         listOf(
             "command", "running", "stdout", "stderr", "exitCode", "connectionError",
-            "artifactRemote", "artifactLocal", "artifactError", "workingDirectory",
+            "artifactRemote", "artifactLocal", "artifactError", "workingDirectory", "gitBranch",
         ).forEach { key -> savedStateHandle.remove<Any>(prefix + key) }
     }
 
