@@ -46,8 +46,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import de.fgna.pocketdev.artifact.ApkInstaller
+import de.fgna.pocketdev.artifact.SshArtifactRetriever
 import de.fgna.pocketdev.diagnostics.DiagnosticDraftBuilder
 import de.fgna.pocketdev.diagnostics.DiagnosticIssueDraft
 import de.fgna.pocketdev.project.ProjectAction
@@ -109,6 +110,8 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                 onCommandChange = vm::setCommand,
                 onRun = runWithLanPermission,
                 onCopy = { text -> copyText(context, text) },
+                onUnlockGitKey = vm::openGitKeyUnlock,
+                onRefreshGitKey = vm::refreshGitKeyStatus,
                 onIssueDraft = {
                     val project = state.project
                     val exitCode = state.command.exitCode
@@ -152,6 +155,25 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                 onDismiss = vm::closeProjectEditor,
                 onSave = vm::saveProjectEditor,
                 onDelete = vm::deleteCurrentProject,
+            )
+        }
+
+        state.pendingProjectCreate?.let { request ->
+            val project = state.projects.firstOrNull { it.id == request.projectId }
+            if (project != null) {
+                ProjectCreateDialog(
+                    project = project,
+                    gitKeyStatus = state.gitKeyStatus,
+                    onDismiss = vm::dismissProjectCreate,
+                    onCreate = vm::createPendingProject,
+                )
+            }
+        }
+
+        if (state.gitKeyUnlockOpen) {
+            GitKeyUnlockDialog(
+                onDismiss = vm::closeGitKeyUnlock,
+                onUnlock = vm::unlockGitKey,
             )
         }
 
@@ -199,6 +221,8 @@ private fun PocketDevHome(
     onCommandChange: (String) -> Unit,
     onRun: () -> Unit,
     onCopy: (String) -> Unit,
+    onUnlockGitKey: () -> Unit,
+    onRefreshGitKey: () -> Unit,
     onIssueDraft: () -> Unit,
 ) {
     val profile = state.profile
@@ -287,6 +311,29 @@ private fun PocketDevHome(
                             }
 
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    when (state.gitKeyStatus) {
+                                        GitKeyStatus.UNKNOWN -> "Git key · unknown"
+                                        GitKeyStatus.CHECKING -> "Git key · checking…"
+                                        GitKeyStatus.LOCKED -> "Git key · locked"
+                                        GitKeyStatus.READY -> "Git key · ready"
+                                        GitKeyStatus.ERROR -> "Git key · check failed"
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (state.gitKeyStatus == GitKeyStatus.ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                when (state.gitKeyStatus) {
+                                    GitKeyStatus.LOCKED -> TextButton(onClick = onUnlockGitKey) { Text("Unlock") }
+                                    GitKeyStatus.UNKNOWN, GitKeyStatus.ERROR -> TextButton(onClick = onRefreshGitKey) { Text("Check") }
+                                    else -> Unit
+                                }
+                            }
+                            state.gitKeyMessage?.let { message ->
+                                Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            }
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 OutlinedButton(modifier = Modifier.weight(1f), onClick = { onProjectAction(ProjectAction.GIT_STATUS) }, enabled = !busy) { Text("Status") }
                                 OutlinedButton(modifier = Modifier.weight(1f), onClick = { onProjectAction(ProjectAction.TEST) }, enabled = !busy && project.testCommand.isNotBlank()) { Text("Test") }
                                 Button(modifier = Modifier.weight(1f), onClick = { onProjectAction(ProjectAction.BUILD) }, enabled = !busy && project.buildCommand.isNotBlank()) { Text("Build") }
@@ -313,7 +360,22 @@ private fun PocketDevHome(
                         TextButton(onClick = { onCommandChange("pwd") }, enabled = !busy) { Text("pwd") }
                         TextButton(onClick = { onCommandChange("") }, enabled = !busy && execution.command.isNotEmpty()) { Text("Clear") }
                     }
-                    OutlinedTextField(value = execution.command, onValueChange = onCommandChange, modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !busy, textStyle = MaterialTheme.typography.bodyMedium)
+                    project?.remotePath?.let { remotePath ->
+                        Text(
+                            "cwd · $remotePath",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    OutlinedTextField(
+                        value = execution.command,
+                        onValueChange = onCommandChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 5,
+                        maxLines = 5,
+                        enabled = !busy,
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                    )
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Button(modifier = Modifier.weight(1f), onClick = onRun, enabled = profile != null && state.hasStoredSecret && execution.command.isNotBlank() && !busy) { Text(if (execution.running) "Running…" else "Run") }
                         OutlinedButton(onClick = { onCopy(execution.command) }, enabled = execution.command.isNotBlank()) { Text("Copy") }
@@ -350,6 +412,73 @@ private fun PocketDevHome(
             }
         }
     }
+}
+
+@Composable
+private fun ProjectCreateDialog(
+    project: ProjectConfig,
+    gitKeyStatus: GitKeyStatus,
+    onDismiss: () -> Unit,
+    onCreate: () -> Unit,
+) {
+    val willClone = project.githubRepository.isNotBlank()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Create project on server?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("PocketDev could not find the configured project folder:")
+                Text(project.remotePath, style = MaterialTheme.typography.bodySmall)
+                if (willClone) {
+                    Text("Create it by cloning ${project.githubRepository} from GitHub. The Git SSH key will be unlocked first if needed.")
+                    if (gitKeyStatus != GitKeyStatus.READY) {
+                        Text("Git key is not ready yet; Create will ask for its passphrase.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    Text("No GitHub repository is configured, so PocketDev will create an empty directory.")
+                }
+                Text("The original command will continue automatically after creation succeeds.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = { TextButton(onClick = onCreate) { Text("Create") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun GitKeyUnlockDialog(
+    onDismiss: () -> Unit,
+    onUnlock: (String) -> Unit,
+) {
+    var passphrase by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Unlock Git key") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Enter the passphrase for the GitHub SSH key on the development server. PocketDev sends it only to ssh-add and does not store it.")
+                OutlinedTextField(
+                    value = passphrase,
+                    onValueChange = { passphrase = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Passphrase") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val value = passphrase
+                    passphrase = ""
+                    onUnlock(value)
+                },
+                enabled = passphrase.isNotBlank(),
+            ) { Text("Unlock") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -533,13 +662,18 @@ private fun openApk(context: Context, path: String) {
         Toast.makeText(context, "Downloaded APK is no longer available.", Toast.LENGTH_LONG).show()
         return
     }
-    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-    val intent = Intent(Intent.ACTION_VIEW).apply {
-        setDataAndType(uri, "application/vnd.android.package-archive")
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    val marker = File(path + SshArtifactRetriever.VERIFIED_SUFFIX)
+    val verifiedHash = runCatching { marker.readText().trim() }.getOrNull()
+    if (!marker.isFile || verifiedHash == null || !verifiedHash.matches(Regex("^[0-9a-f]{64}$"))) {
+        Toast.makeText(context, "APK is not verified. Tap Get APK again before installing.", Toast.LENGTH_LONG).show()
+        return
     }
-    runCatching { context.startActivity(intent) }.onFailure { Toast.makeText(context, "Android could not open this APK: ${it.message}", Toast.LENGTH_LONG).show() }
+
+    runCatching { ApkInstaller.install(context, file) }
+        .onFailure { error ->
+            Toast.makeText(context, "Could not start APK install: ${error.message}", Toast.LENGTH_LONG).show()
+        }
 }
 
 private fun openGitHubIssueDraft(context: Context, repository: String, title: String, body: String) {

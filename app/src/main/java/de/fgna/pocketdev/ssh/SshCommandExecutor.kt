@@ -9,20 +9,58 @@ import kotlinx.coroutines.withContext
 import net.schmizz.sshj.DefaultSecurityProviderConfig
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.common.SecurityUtils
+import net.schmizz.sshj.connection.channel.direct.Session
+import net.schmizz.sshj.connection.channel.direct.Signal
 import net.schmizz.sshj.transport.verification.HostKeyVerifier
+import java.io.BufferedWriter
 import java.io.InputStream
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.security.PublicKey
+import java.util.concurrent.ConcurrentHashMap
 
 interface SshCommandExecutor {
-    fun execute(profile: SshProfile, secret: String, command: String): Flow<CommandEvent>
+    fun execute(
+        profile: SshProfile,
+        secret: String,
+        command: String,
+        stdinText: String? = null,
+        commandId: String? = null,
+        interactiveSudo: Boolean = true,
+    ): Flow<CommandEvent>
+
+    fun sendInput(commandId: String, text: String): Boolean = false
+    fun cancel(commandId: String): Boolean = false
 }
 
 class SshjCommandExecutor : SshCommandExecutor {
-    override fun execute(profile: SshProfile, secret: String, command: String): Flow<CommandEvent> = channelFlow {
+    private data class ActiveCommand(
+        val originalCommand: String,
+        val ssh: SSHClient,
+        val session: Session,
+        val remote: Session.Command,
+        val writer: BufferedWriter,
+        val emit: (CommandEvent) -> Unit,
+    )
+
+    override fun sendInput(commandId: String, text: String): Boolean = sendInputTo(commandId, text)
+
+    override fun cancel(commandId: String): Boolean = cancelMatching(commandId)
+
+    override fun execute(
+        profile: SshProfile,
+        secret: String,
+        command: String,
+        stdinText: String?,
+        commandId: String?,
+        interactiveSudo: Boolean,
+    ): Flow<CommandEvent> = channelFlow {
         var ssh: SSHClient? = null
+        var session: Session? = null
+        var remote: Session.Command? = null
+        var writer: BufferedWriter? = null
         var discoveredFingerprint: String? = null
+        val controlKey = commandId ?: command
         send(CommandEvent.Connecting)
 
         try {
@@ -31,14 +69,9 @@ class SshjCommandExecutor : SshCommandExecutor {
 
             for (target in targets) {
                 val candidate = createAndroidCompatibleClient()
-                configureHostKeyVerifier(candidate, profile) { fingerprint ->
-                    discoveredFingerprint = fingerprint
-                }
-
+                configureHostKeyVerifier(candidate, profile) { fingerprint -> discoveredFingerprint = fingerprint }
                 try {
-                    withContext(Dispatchers.IO) {
-                        candidate.connect(target, profile.port)
-                    }
+                    withContext(Dispatchers.IO) { candidate.connect(target, profile.port) }
                     ssh = candidate
                     break
                 } catch (error: Exception) {
@@ -77,25 +110,65 @@ class SshjCommandExecutor : SshCommandExecutor {
             }
             send(CommandEvent.Connected)
 
-            val session = withContext(Dispatchers.IO) { connected.startSession() }
-            val remote = withContext(Dispatchers.IO) { session.exec(command) }
+            session = withContext(Dispatchers.IO) { connected.startSession() }
+            val effectiveCommand = if (interactiveSudo) interactiveSudoCommand(command) else command
+            remote = withContext(Dispatchers.IO) { session!!.exec(effectiveCommand) }
+            writer = remote!!.outputStream.bufferedWriter()
+            cancelledCommands.remove(controlKey)
+            activeCommands[controlKey] = ActiveCommand(
+                originalCommand = command,
+                ssh = connected,
+                session = session!!,
+                remote = remote!!,
+                writer = writer!!,
+                emit = { event -> trySend(event); Unit },
+            )
+            if (commandId != null) {
+                activeUserCommands += controlKey
+                notifyActiveCommandListeners()
+            }
+
+            if (stdinText != null) {
+                withContext(Dispatchers.IO) {
+                    writer!!.write(stdinText)
+                    writer!!.newLine()
+                    writer!!.flush()
+                }
+            }
 
             val stdoutJob = launch(Dispatchers.IO) {
-                stream(remote.inputStream) { text -> trySend(CommandEvent.Output(OutputStreamKind.STDOUT, text)) }
+                stream(remote!!.inputStream) { text -> trySend(CommandEvent.Output(OutputStreamKind.STDOUT, text)) }
             }
             val stderrJob = launch(Dispatchers.IO) {
-                stream(remote.errorStream) { text -> trySend(CommandEvent.Output(OutputStreamKind.STDERR, text)) }
+                if (interactiveSudo) {
+                    streamInteractiveStderr(remote!!.errorStream) { event -> trySend(event) }
+                } else {
+                    stream(remote!!.errorStream) { text -> trySend(CommandEvent.Output(OutputStreamKind.STDERR, text)) }
+                }
             }
 
-            withContext(Dispatchers.IO) { remote.join() }
+            withContext(Dispatchers.IO) { remote!!.join() }
             stdoutJob.join()
             stderrJob.join()
-            trySend(CommandEvent.Completed(remote.exitStatus ?: -1))
-            withContext(Dispatchers.IO) { session.close() }
+            val exitCode = if (cancelledCommands.contains(controlKey)) 130 else remote!!.exitStatus ?: -1
+            trySend(CommandEvent.Completed(exitCode))
         } catch (error: Exception) {
-            trySend(CommandEvent.ConnectionFailed(error.message ?: error::class.java.simpleName))
+            if (cancelledCommands.contains(controlKey)) {
+                trySend(CommandEvent.Completed(130))
+            } else {
+                trySend(CommandEvent.ConnectionFailed(error.message ?: error::class.java.simpleName))
+            }
         } finally {
+            activeCommands.remove(controlKey)
+            if (commandId != null) {
+                activeUserCommands.remove(controlKey)
+                notifyActiveCommandListeners()
+            }
+            cancelledCommands.remove(controlKey)
             withContext(Dispatchers.IO) {
+                runCatching { writer?.close() }
+                runCatching { remote?.close() }
+                runCatching { session?.close() }
                 ssh?.let { client ->
                     runCatching { client.disconnect() }
                     runCatching { client.close() }
@@ -104,18 +177,14 @@ class SshjCommandExecutor : SshCommandExecutor {
         }
     }
 
+    private fun interactiveSudoCommand(command: String): String = """
+        sudo() { command sudo -S -p '$SUDO_PROMPT' "${'$'}@"; }
+        $command
+    """.trimIndent()
+
     private fun createAndroidCompatibleClient(): SSHClient {
         val config = DefaultSecurityProviderConfig().apply {
-            // SSHJ 0.40.0 is not compatible with Android Conscrypt's Ed25519
-            // public-key representation and also asks Android for KeyFactory("ECDSA").
-            // Restrict host-key negotiation to modern RSA-SHA2 algorithms, which
-            // Android handles through the standard RSA KeyFactory.
-            setKeyAlgorithms(
-                listOf(
-                    KeyAlgorithms.RSASHA512(),
-                    KeyAlgorithms.RSASHA256(),
-                ),
-            )
+            setKeyAlgorithms(listOf(KeyAlgorithms.RSASHA512(), KeyAlgorithms.RSASHA256()))
         }
         return SSHClient(config)
     }
@@ -141,11 +210,7 @@ class SshjCommandExecutor : SshCommandExecutor {
 
     private fun resolveTargets(host: String): List<String> {
         val addresses = InetAddress.getAllByName(host).toList()
-        return addresses
-            .sortedByDescending { it is Inet4Address }
-            .mapNotNull { it.hostAddress }
-            .distinct()
-            .ifEmpty { listOf(host) }
+        return addresses.sortedByDescending { it is Inet4Address }.mapNotNull { it.hostAddress }.distinct().ifEmpty { listOf(host) }
     }
 
     private fun stream(input: InputStream, onChunk: (String) -> Unit) {
@@ -154,6 +219,95 @@ class SshjCommandExecutor : SshCommandExecutor {
             val count = input.read(buffer)
             if (count <= 0) break
             onChunk(buffer.decodeToString(0, count))
+        }
+    }
+
+    private fun streamInteractiveStderr(input: InputStream, emit: (CommandEvent) -> Unit) {
+        var pending = ""
+        stream(input) { chunk ->
+            pending += chunk
+            while (true) {
+                val markerIndex = pending.indexOf(SUDO_PROMPT)
+                if (markerIndex >= 0) {
+                    val before = pending.substring(0, markerIndex)
+                    if (before.isNotEmpty()) emit(CommandEvent.Output(OutputStreamKind.STDERR, before))
+                    emit(CommandEvent.SudoPasswordRequired)
+                    pending = pending.substring(markerIndex + SUDO_PROMPT.length)
+                    continue
+                }
+
+                val keep = minOf(SUDO_PROMPT.length - 1, pending.length)
+                val flushLength = pending.length - keep
+                if (flushLength > 0) {
+                    emit(CommandEvent.Output(OutputStreamKind.STDERR, pending.substring(0, flushLength)))
+                    pending = pending.substring(flushLength)
+                }
+                break
+            }
+        }
+        if (pending.isNotEmpty()) emit(CommandEvent.Output(OutputStreamKind.STDERR, pending))
+    }
+
+    companion object {
+        private const val SUDO_PROMPT = "POCKETDEV_SUDO_PASSWORD_REQUIRED"
+        private val activeCommands = ConcurrentHashMap<String, ActiveCommand>()
+        private val activeUserCommands = ConcurrentHashMap.newKeySet<String>()
+        private val activeCommandListeners = ConcurrentHashMap.newKeySet<(Int) -> Unit>()
+        private val cancelledCommands = ConcurrentHashMap.newKeySet<String>()
+
+        private fun findActive(commandHint: String): Map.Entry<String, ActiveCommand>? {
+            activeCommands[commandHint]?.let { exact ->
+                return object : Map.Entry<String, ActiveCommand> {
+                    override val key: String = commandHint
+                    override val value: ActiveCommand = exact
+                }
+            }
+            return activeCommands.entries.firstOrNull { (_, active) ->
+                active.originalCommand == commandHint || active.originalCommand.contains(commandHint)
+            }
+        }
+
+        fun activeUserCommandCount(): Int = activeUserCommands.size
+
+        fun addActiveCommandListener(listener: (Int) -> Unit): () -> Unit {
+            activeCommandListeners += listener
+            listener(activeUserCommandCount())
+            return {
+                activeCommandListeners -= listener
+            }
+        }
+
+        private fun notifyActiveCommandListeners() {
+            val count = activeUserCommandCount()
+            activeCommandListeners.forEach { listener -> runCatching { listener(count) } }
+        }
+
+        fun sendInputTo(commandHint: String, text: String): Boolean {
+            val entry = findActive(commandHint) ?: return false
+            val active = entry.value
+            val success = runCatching {
+                synchronized(active.writer) {
+                    active.writer.write(text)
+                    active.writer.newLine()
+                    active.writer.flush()
+                }
+            }.isSuccess
+            if (success) active.emit(CommandEvent.SudoPasswordSubmitted)
+            return success
+        }
+
+        fun cancelMatching(commandHint: String): Boolean {
+            val entry = findActive(commandHint) ?: return false
+            val key = entry.key
+            val active = entry.value
+            cancelledCommands += key
+            runCatching { active.remote.signal(Signal.INT) }
+            runCatching { Thread.sleep(120) }
+            runCatching { active.remote.close() }
+            runCatching { active.session.close() }
+            runCatching { active.ssh.disconnect() }
+            runCatching { active.ssh.close() }
+            return true
         }
     }
 }

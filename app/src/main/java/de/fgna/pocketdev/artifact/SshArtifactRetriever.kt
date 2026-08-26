@@ -10,8 +10,10 @@ import kotlinx.coroutines.withContext
 import net.schmizz.sshj.DefaultSecurityProviderConfig
 import net.schmizz.sshj.SSHClient
 import java.io.File
+import java.io.FileInputStream
 import java.net.Inet4Address
 import java.net.InetAddress
+import java.security.MessageDigest
 
 interface ArtifactRetriever {
     suspend fun downloadLatestApk(
@@ -25,6 +27,8 @@ interface ArtifactRetriever {
 data class DownloadedArtifact(
     val remotePath: String,
     val localFile: File,
+    val sizeBytes: Long,
+    val sha256: String,
 )
 
 class SshArtifactRetriever : ArtifactRetriever {
@@ -41,6 +45,8 @@ class SshArtifactRetriever : ArtifactRetriever {
             authenticate(ssh, profile, secret)
             val relativePath = discoverLatestApk(ssh, project)
             val remotePath = project.remotePath.trimEnd('/') + "/" + relativePath.removePrefix("./")
+            val remoteSha256 = remoteSha256(ssh, remotePath)
+
             destinationDir.mkdirs()
             destinationDir.listFiles()?.forEach { old -> if (old.isFile) old.delete() }
 
@@ -56,7 +62,19 @@ class SshArtifactRetriever : ArtifactRetriever {
                 sftp.get(remotePath, localFile.absolutePath)
             }
             require(localFile.isFile && localFile.length() > 0L) { "APK download completed without a readable local file." }
-            DownloadedArtifact(remotePath = remotePath, localFile = localFile)
+
+            val localSha256 = localSha256(localFile)
+            require(localSha256.equals(remoteSha256, ignoreCase = true)) {
+                "APK integrity check failed: server and downloaded SHA-256 differ."
+            }
+            File(localFile.absolutePath + VERIFIED_SUFFIX).writeText(localSha256)
+
+            DownloadedArtifact(
+                remotePath = remotePath,
+                localFile = localFile,
+                sizeBytes = localFile.length(),
+                sha256 = localSha256,
+            )
         } finally {
             runCatching { ssh.disconnect() }
             runCatching { ssh.close() }
@@ -111,6 +129,34 @@ class SshArtifactRetriever : ArtifactRetriever {
         }
     }
 
+    private fun remoteSha256(ssh: SSHClient, remotePath: String): String {
+        val quotedPath = ProjectCommandBuilder.shellQuote(remotePath)
+        ssh.startSession().use { session ->
+            val remote = session.exec("sha256sum -- $quotedPath | cut -d' ' -f1")
+            val stdout = remote.inputStream.bufferedReader().readText().trim()
+            val stderr = remote.errorStream.bufferedReader().readText().trim()
+            remote.join()
+            val exit = remote.exitStatus ?: -1
+            require(exit == 0 && SHA256.matches(stdout)) {
+                stderr.ifBlank { "Could not calculate SHA-256 for the server APK." }
+            }
+            return stdout.lowercase()
+        }
+    }
+
+    private fun localSha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(file).use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val count = input.read(buffer)
+                if (count <= 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+    }
+
     private fun createAndroidCompatibleClient(): SSHClient {
         val config = DefaultSecurityProviderConfig().apply {
             setKeyAlgorithms(listOf(KeyAlgorithms.RSASHA512(), KeyAlgorithms.RSASHA256()))
@@ -124,4 +170,9 @@ class SshArtifactRetriever : ArtifactRetriever {
         .mapNotNull { it.hostAddress }
         .distinct()
         .ifEmpty { listOf(host) }
+
+    companion object {
+        const val VERIFIED_SUFFIX = ".sha256-verified"
+        private val SHA256 = Regex("^[0-9a-fA-F]{64}$")
+    }
 }
