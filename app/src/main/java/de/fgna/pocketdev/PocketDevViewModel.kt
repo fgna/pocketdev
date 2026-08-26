@@ -191,7 +191,7 @@ class PocketDevViewModel(
     fun closeProjectEditor() = updateState { it.copy(projectEditorOpen = false) }
 
     fun updateProjectEditor(transform: (ProjectEditorState) -> ProjectEditorState) =
-        updateState { it.copy(projectEditor = transform(it.editor)) }
+        updateState { it.copy(projectEditor = transform(it.projectEditor)) }
 
     fun saveProjectEditor() {
         val state = _state.value
