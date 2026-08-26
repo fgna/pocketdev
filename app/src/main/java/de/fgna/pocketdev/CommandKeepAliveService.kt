@@ -8,39 +8,63 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import de.fgna.pocketdev.ssh.SshjCommandExecutor
 
 class CommandKeepAliveService : Service() {
-    private val activeProjects = linkedSetOf<String>()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var removeActiveListener: (() -> Unit)? = null
+    private var lastActiveCount = 0
+
+    private val stopWhenIdle = Runnable {
+        if (SshjCommandExecutor.activeUserCommandCount() == 0) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        removeActiveListener = SshjCommandExecutor.addActiveCommandListener(::onActiveCommandCountChanged)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val projectId = intent?.getStringExtra(EXTRA_PROJECT_ID)?.takeIf { it.isNotBlank() }
-        when (intent?.action) {
-            ACTION_COMMAND_STARTED -> {
-                if (projectId != null) activeProjects += projectId
-                showForegroundNotification()
-            }
-            ACTION_COMMAND_FINISHED -> {
-                if (projectId != null) activeProjects -= projectId
-                if (activeProjects.isEmpty()) {
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
-                } else {
-                    showForegroundNotification()
-                }
-            }
+        mainHandler.removeCallbacks(stopWhenIdle)
+        showForegroundNotification(SshjCommandExecutor.activeUserCommandCount().coerceAtLeast(1))
+        if (SshjCommandExecutor.activeUserCommandCount() == 0) {
+            mainHandler.postDelayed(stopWhenIdle, STARTUP_GRACE_MS)
         }
         return START_NOT_STICKY
     }
 
+    override fun onDestroy() {
+        mainHandler.removeCallbacks(stopWhenIdle)
+        removeActiveListener?.invoke()
+        removeActiveListener = null
+        super.onDestroy()
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun showForegroundNotification() {
+    private fun onActiveCommandCountChanged(count: Int) {
+        mainHandler.post {
+            lastActiveCount = count
+            mainHandler.removeCallbacks(stopWhenIdle)
+            if (count > 0) {
+                showForegroundNotification(count)
+            } else {
+                // Project pre-check/bootstrap and the real command can hand off through a
+                // very short zero-command gap. Debounce shutdown so that hand-off does
+                // not drop foreground protection between the two SSH sessions.
+                mainHandler.postDelayed(stopWhenIdle, IDLE_DEBOUNCE_MS)
+            }
+        }
+    }
+
+    private fun showForegroundNotification(activeCount: Int = lastActiveCount.coerceAtLeast(1)) {
         val openPocketDev = Intent(this, InteractiveMainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
@@ -50,7 +74,7 @@ class CommandKeepAliveService : Service() {
             openPocketDev,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val count = activeProjects.size.coerceAtLeast(1)
+        val count = activeCount.coerceAtLeast(1)
         val notification = android.app.Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
             .setContentTitle("PocketDev · command running")
@@ -83,22 +107,11 @@ class CommandKeepAliveService : Service() {
     companion object {
         private const val CHANNEL_ID = "pocketdev_running_commands"
         private const val NOTIFICATION_ID = 1201
-        private const val ACTION_COMMAND_STARTED = "de.fgna.pocketdev.COMMAND_STARTED"
-        private const val ACTION_COMMAND_FINISHED = "de.fgna.pocketdev.COMMAND_FINISHED"
-        private const val EXTRA_PROJECT_ID = "projectId"
+        private const val STARTUP_GRACE_MS = 3_000L
+        private const val IDLE_DEBOUNCE_MS = 1_000L
 
-        fun commandStarted(context: Context, projectId: String) {
-            val intent = Intent(context, CommandKeepAliveService::class.java)
-                .setAction(ACTION_COMMAND_STARTED)
-                .putExtra(EXTRA_PROJECT_ID, projectId)
-            context.startForegroundService(intent)
-        }
-
-        fun commandFinished(context: Context, projectId: String) {
-            val intent = Intent(context, CommandKeepAliveService::class.java)
-                .setAction(ACTION_COMMAND_FINISHED)
-                .putExtra(EXTRA_PROJECT_ID, projectId)
-            context.startService(intent)
+        fun ensureRunning(context: Context) {
+            context.startForegroundService(Intent(context, CommandKeepAliveService::class.java))
         }
     }
 }
