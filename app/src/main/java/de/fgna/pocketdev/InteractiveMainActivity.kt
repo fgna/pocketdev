@@ -1,9 +1,14 @@
 package de.fgna.pocketdev
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +23,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,7 +63,24 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     val activeProject = state.project
     val activeProjectId = activeProject?.id.orEmpty()
     val projectBusy = command.running || state.artifact.downloading
+    val anyCommandRunning = state.sessions.values.any { it.command.running }
     var confirmProjectRemoval by remember(activeProjectId) { mutableStateOf(false) }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { /* A foreground service can still run if notification permission is declined. */ }
+
+    LaunchedEffect(anyCommandRunning) {
+        if (anyCommandRunning) {
+            CommandKeepAliveService.ensureRunning(context)
+            if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
 
     suspend fun cancelActiveCommand(): Boolean = withContext(Dispatchers.IO) {
         runCatching {
