@@ -123,6 +123,10 @@ class SshjCommandExecutor : SshCommandExecutor {
                 writer = writer!!,
                 emit = { event -> trySend(event); Unit },
             )
+            if (commandId != null) {
+                activeUserCommands += controlKey
+                notifyActiveCommandListeners()
+            }
 
             if (stdinText != null) {
                 withContext(Dispatchers.IO) {
@@ -160,6 +164,10 @@ class SshjCommandExecutor : SshCommandExecutor {
             }
         } finally {
             activeCommands.remove(controlKey)
+            if (commandId != null) {
+                activeUserCommands.remove(controlKey)
+                notifyActiveCommandListeners()
+            }
             cancelledCommands.remove(controlKey)
             withContext(Dispatchers.IO) {
                 runCatching { writer?.close() }
@@ -221,12 +229,29 @@ class SshjCommandExecutor : SshCommandExecutor {
     companion object {
         private const val SUDO_PROMPT = "POCKETDEV_SUDO_PASSWORD_REQUIRED"
         private val activeCommands = ConcurrentHashMap<String, ActiveCommand>()
+        private val activeUserCommands = ConcurrentHashMap.newKeySet<String>()
+        private val activeCommandListeners = ConcurrentHashMap.newKeySet<(Int) -> Unit>()
         private val cancelledCommands = ConcurrentHashMap.newKeySet<String>()
 
         private fun findActive(commandHint: String): Map.Entry<String, ActiveCommand>? =
             activeCommands.entries.firstOrNull { (key, active) ->
                 key == commandHint || active.originalCommand == commandHint || active.originalCommand.contains(commandHint)
             }
+
+        fun activeUserCommandCount(): Int = activeUserCommands.size
+
+        fun addActiveCommandListener(listener: (Int) -> Unit): () -> Unit {
+            activeCommandListeners += listener
+            listener(activeUserCommandCount())
+            return {
+                activeCommandListeners -= listener
+            }
+        }
+
+        private fun notifyActiveCommandListeners() {
+            val count = activeUserCommandCount()
+            activeCommandListeners.forEach { listener -> runCatching { listener(count) } }
+        }
 
         fun sendInputTo(commandHint: String, text: String): Boolean {
             val entry = findActive(commandHint) ?: return false
