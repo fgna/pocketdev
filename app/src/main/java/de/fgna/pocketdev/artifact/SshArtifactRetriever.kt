@@ -43,8 +43,15 @@ class SshArtifactRetriever : ArtifactRetriever {
             val remotePath = project.remotePath.trimEnd('/') + "/" + relativePath.removePrefix("./")
             destinationDir.mkdirs()
             destinationDir.listFiles()?.forEach { old -> if (old.isFile) old.delete() }
-            val fileName = remotePath.substringAfterLast('/').ifBlank { "pocketdev-build.apk" }
-            val localFile = File(destinationDir, fileName)
+
+            // Use a fresh local filename for every retrieval. Android's package installer may
+            // reuse/carry cached state for an identical FileProvider URI even after the backing
+            // cache file has been replaced, which can result in installing an older APK.
+            val remoteName = remotePath.substringAfterLast('/').ifBlank { "pocketdev-build.apk" }
+            val baseName = remoteName.removeSuffix(".apk")
+            val uniqueName = "$baseName-${System.currentTimeMillis()}.apk"
+            val localFile = File(destinationDir, uniqueName)
+
             ssh.newSFTPClient().use { sftp ->
                 sftp.get(remotePath, localFile.absolutePath)
             }
