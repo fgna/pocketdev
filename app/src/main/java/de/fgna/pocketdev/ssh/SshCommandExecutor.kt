@@ -140,14 +140,10 @@ class SshjCommandExecutor : SshCommandExecutor {
                 stream(remote!!.inputStream) { text -> trySend(CommandEvent.Output(OutputStreamKind.STDOUT, text)) }
             }
             val stderrJob = launch(Dispatchers.IO) {
-                stream(remote!!.errorStream) { text ->
-                    if (interactiveSudo && text.contains(SUDO_PROMPT)) {
-                        trySend(CommandEvent.SudoPasswordRequired)
-                        val cleaned = text.replace(SUDO_PROMPT, "")
-                        if (cleaned.isNotEmpty()) trySend(CommandEvent.Output(OutputStreamKind.STDERR, cleaned))
-                    } else {
-                        trySend(CommandEvent.Output(OutputStreamKind.STDERR, text))
-                    }
+                if (interactiveSudo) {
+                    streamInteractiveStderr(remote!!.errorStream) { event -> trySend(event) }
+                } else {
+                    stream(remote!!.errorStream) { text -> trySend(CommandEvent.Output(OutputStreamKind.STDERR, text)) }
                 }
             }
 
@@ -226,6 +222,32 @@ class SshjCommandExecutor : SshCommandExecutor {
         }
     }
 
+    private fun streamInteractiveStderr(input: InputStream, emit: (CommandEvent) -> Unit) {
+        var pending = ""
+        stream(input) { chunk ->
+            pending += chunk
+            while (true) {
+                val markerIndex = pending.indexOf(SUDO_PROMPT)
+                if (markerIndex >= 0) {
+                    val before = pending.substring(0, markerIndex)
+                    if (before.isNotEmpty()) emit(CommandEvent.Output(OutputStreamKind.STDERR, before))
+                    emit(CommandEvent.SudoPasswordRequired)
+                    pending = pending.substring(markerIndex + SUDO_PROMPT.length)
+                    continue
+                }
+
+                val keep = minOf(SUDO_PROMPT.length - 1, pending.length)
+                val flushLength = pending.length - keep
+                if (flushLength > 0) {
+                    emit(CommandEvent.Output(OutputStreamKind.STDERR, pending.substring(0, flushLength)))
+                    pending = pending.substring(flushLength)
+                }
+                break
+            }
+        }
+        if (pending.isNotEmpty()) emit(CommandEvent.Output(OutputStreamKind.STDERR, pending))
+    }
+
     companion object {
         private const val SUDO_PROMPT = "POCKETDEV_SUDO_PASSWORD_REQUIRED"
         private val activeCommands = ConcurrentHashMap<String, ActiveCommand>()
@@ -233,10 +255,17 @@ class SshjCommandExecutor : SshCommandExecutor {
         private val activeCommandListeners = ConcurrentHashMap.newKeySet<(Int) -> Unit>()
         private val cancelledCommands = ConcurrentHashMap.newKeySet<String>()
 
-        private fun findActive(commandHint: String): Map.Entry<String, ActiveCommand>? =
-            activeCommands.entries.firstOrNull { (key, active) ->
-                key == commandHint || active.originalCommand == commandHint || active.originalCommand.contains(commandHint)
+        private fun findActive(commandHint: String): Map.Entry<String, ActiveCommand>? {
+            activeCommands[commandHint]?.let { exact ->
+                return object : Map.Entry<String, ActiveCommand> {
+                    override val key: String = commandHint
+                    override val value: ActiveCommand = exact
+                }
             }
+            return activeCommands.entries.firstOrNull { (_, active) ->
+                active.originalCommand == commandHint || active.originalCommand.contains(commandHint)
+            }
+        }
 
         fun activeUserCommandCount(): Int = activeUserCommands.size
 
@@ -257,9 +286,11 @@ class SshjCommandExecutor : SshCommandExecutor {
             val entry = findActive(commandHint) ?: return false
             val active = entry.value
             val success = runCatching {
-                active.writer.write(text)
-                active.writer.newLine()
-                active.writer.flush()
+                synchronized(active.writer) {
+                    active.writer.write(text)
+                    active.writer.newLine()
+                    active.writer.flush()
+                }
             }.isSuccess
             if (success) active.emit(CommandEvent.SudoPasswordSubmitted)
             return success
