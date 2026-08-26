@@ -52,6 +52,14 @@ class InteractiveMainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onPause() {
+        // Start foreground protection before Android backgrounds the Activity. This avoids
+        // relying only on a Compose state effect that may race with a quick app switch or
+        // screen-off transition. The service stops itself again when no command is active.
+        CommandKeepAliveService.ensureRunning(this)
+        super.onPause()
+    }
 }
 
 @Composable
