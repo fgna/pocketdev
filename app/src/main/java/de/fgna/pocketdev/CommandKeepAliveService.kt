@@ -32,6 +32,14 @@ class CommandKeepAliveService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP_COMMANDS) {
+            SshjCommandExecutor.cancelAllActiveUserCommands()
+            mainHandler.removeCallbacks(stopWhenIdle)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+
         mainHandler.removeCallbacks(stopWhenIdle)
         showForegroundNotification(SshjCommandExecutor.activeUserCommandCount().coerceAtLeast(1))
         if (SshjCommandExecutor.activeUserCommandCount() == 0) {
@@ -68,10 +76,19 @@ class CommandKeepAliveService : Service() {
         val openPocketDev = Intent(this, InteractiveMainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
-        val pendingIntent = PendingIntent.getActivity(
+        val openPendingIntent = PendingIntent.getActivity(
             this,
             0,
             openPocketDev,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val stopCommands = Intent(this, CommandKeepAliveService::class.java).apply {
+            action = ACTION_STOP_COMMANDS
+        }
+        val stopPendingIntent = PendingIntent.getService(
+            this,
+            1,
+            stopCommands,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val count = activeCount.coerceAtLeast(1)
@@ -79,7 +96,8 @@ class CommandKeepAliveService : Service() {
             .setSmallIcon(android.R.drawable.stat_sys_upload)
             .setContentTitle("PocketDev · command running")
             .setContentText(if (count == 1) "Remote command is still running" else "$count remote commands are still running")
-            .setContentIntent(pendingIntent)
+            .setContentIntent(openPendingIntent)
+            .addAction(android.R.drawable.ic_media_pause, "Stop", stopPendingIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(android.app.Notification.CATEGORY_PROGRESS)
@@ -107,6 +125,7 @@ class CommandKeepAliveService : Service() {
     companion object {
         private const val CHANNEL_ID = "pocketdev_running_commands"
         private const val NOTIFICATION_ID = 1201
+        private const val ACTION_STOP_COMMANDS = "de.fgna.pocketdev.action.STOP_COMMANDS"
         private const val STARTUP_GRACE_MS = 3_000L
         private const val IDLE_DEBOUNCE_MS = 1_000L
 
