@@ -269,6 +269,11 @@ class SshjCommandExecutor : SshCommandExecutor {
 
         fun activeUserCommandCount(): Int = activeUserCommands.size
 
+        fun cancelAllActiveUserCommands(): Int {
+            val commandIds = activeUserCommands.toList()
+            return commandIds.count { commandId -> cancelMatching(commandId) }
+        }
+
         fun addActiveCommandListener(listener: (Int) -> Unit): () -> Unit {
             activeCommandListeners += listener
             listener(activeUserCommandCount())
