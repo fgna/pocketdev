@@ -29,26 +29,21 @@ class SshFileTransferClient {
         secret: String,
         configuredPath: String,
     ): RemoteDirectoryListing = withContext(Dispatchers.IO) {
-        val transferId = TransferActivityRegistry.begin()
-        try {
-            withClient(profile, secret) { ssh ->
-                val path = resolveDirectory(ssh, configuredPath)
-                val files = ssh.newSFTPClient().use { sftp ->
-                    sftp.ls(path)
-                        .filter { it.name != "." && it.name != ".." }
-                        .map { item ->
-                            RemoteTransferFile(
-                                name = item.name,
-                                sizeBytes = item.attributes.size,
-                                directory = item.isDirectory,
-                            )
-                        }
-                        .sortedWith(compareBy<RemoteTransferFile> { !it.directory }.thenBy { it.name.lowercase() })
-                }
-                RemoteDirectoryListing(path, files)
+        withClient(profile, secret) { ssh ->
+            val path = resolveDirectory(ssh, configuredPath)
+            val files = ssh.newSFTPClient().use { sftp ->
+                sftp.ls(path)
+                    .filter { it.name != "." && it.name != ".." }
+                    .map { item ->
+                        RemoteTransferFile(
+                            name = item.name,
+                            sizeBytes = item.attributes.size,
+                            directory = item.isDirectory,
+                        )
+                    }
+                    .sortedWith(compareBy<RemoteTransferFile> { !it.directory }.thenBy { it.name.lowercase() })
             }
-        } finally {
-            TransferActivityRegistry.end(transferId)
+            RemoteDirectoryListing(path, files)
         }
     }
 
@@ -59,22 +54,17 @@ class SshFileTransferClient {
         files: List<File>,
         onProgress: (Int, Int, String) -> Unit,
     ): String = withContext(Dispatchers.IO) {
-        val transferId = TransferActivityRegistry.begin()
-        try {
-            withClient(profile, secret) { ssh ->
-                val path = resolveDirectory(ssh, configuredPath)
-                ssh.newSFTPClient().use { sftp ->
-                    files.forEachIndexed { index, file ->
-                        require(file.isFile) { "Local transfer source is not a file: ${file.name}" }
-                        val name = safeName(file.name)
-                        onProgress(index + 1, files.size, name)
-                        sftp.put(file.absolutePath, "$path/$name")
-                    }
+        withClient(profile, secret) { ssh ->
+            val path = resolveDirectory(ssh, configuredPath)
+            ssh.newSFTPClient().use { sftp ->
+                files.forEachIndexed { index, file ->
+                    require(file.isFile) { "Local transfer source is not a file: ${file.name}" }
+                    val name = safeName(file.name)
+                    onProgress(index + 1, files.size, name)
+                    sftp.put(file.absolutePath, "$path/$name")
                 }
-                path
             }
-        } finally {
-            TransferActivityRegistry.end(transferId)
+            path
         }
     }
 
@@ -86,25 +76,20 @@ class SshFileTransferClient {
         destinationDir: File,
         onProgress: (Int, Int, String) -> Unit,
     ): List<File> = withContext(Dispatchers.IO) {
-        val transferId = TransferActivityRegistry.begin()
-        try {
-            withClient(profile, secret) { ssh ->
-                val path = resolveDirectory(ssh, configuredPath)
-                destinationDir.deleteRecursively()
-                destinationDir.mkdirs()
-                ssh.newSFTPClient().use { sftp ->
-                    names.mapIndexed { index, rawName ->
-                        val name = safeName(rawName)
-                        onProgress(index + 1, names.size, name)
-                        val target = File(destinationDir, name)
-                        sftp.get("$path/$name", target.absolutePath)
-                        require(target.isFile) { "Downloaded file is not readable: $name" }
-                        target
-                    }
+        withClient(profile, secret) { ssh ->
+            val path = resolveDirectory(ssh, configuredPath)
+            destinationDir.deleteRecursively()
+            destinationDir.mkdirs()
+            ssh.newSFTPClient().use { sftp ->
+                names.mapIndexed { index, rawName ->
+                    val name = safeName(rawName)
+                    onProgress(index + 1, names.size, name)
+                    val target = File(destinationDir, name)
+                    sftp.get("$path/$name", target.absolutePath)
+                    require(target.isFile) { "Downloaded file is not readable: $name" }
+                    target
                 }
             }
-        } finally {
-            TransferActivityRegistry.end(transferId)
         }
     }
 
