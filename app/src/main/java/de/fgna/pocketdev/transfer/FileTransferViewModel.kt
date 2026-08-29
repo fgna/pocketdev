@@ -91,7 +91,7 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
 
     fun refresh() {
         if (_state.value.busy) return
-        _state.update { it.copy(busy = true, progress = "Refreshing…", error = null, message = null) }
+        _state.update { it.copy(busy = true, progress = "Refreshing…", error = null) }
         viewModelScope.launch {
             runCatching {
                 val (profile, secret) = profileAndSecret()
@@ -133,16 +133,17 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
                     deleteRecursively()
                     mkdirs()
                 }
-                val localFiles = selected.mapIndexed { index, item ->
-                    val target = File(staging, "${index}-${item.name}")
+                val localFiles = selected.map { item ->
+                    val name = item.name.trim()
+                    require(name.isNotBlank() && name != "." && name != ".." && '/' !in name && '\\' !in name) {
+                        "Unsafe transfer filename: ${item.name}"
+                    }
+                    val target = File(staging, name)
                     app.contentResolver.openInputStream(Uri.parse(item.uri)).use { input ->
                         requireNotNull(input) { "Could not open ${item.name}." }
-                        target.outputStream().use(input::copyTo)
+                        target.outputStream().use { output -> input.copyTo(output) }
                     }
-                    File(staging, item.name).also { named ->
-                        if (named.exists()) named.delete()
-                        require(target.renameTo(named)) { "Could not stage ${item.name}." }
-                    }
+                    target
                 }
                 client.upload(profile, secret, _state.value.serverPath, localFiles) { current, total, name ->
                     _state.update { it.copy(progress = "Uploading $current/$total · $name") }
