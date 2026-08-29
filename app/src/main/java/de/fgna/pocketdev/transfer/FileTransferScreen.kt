@@ -1,5 +1,6 @@
 package de.fgna.pocketdev.transfer
 
+import android.app.Activity
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -38,15 +39,26 @@ fun FileTransferScreen(
 ) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
-    val choosePhoneFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
-                )
-            }
+    val choosePhoneFolder = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
+        val data = result.data
+        val uri = data?.data ?: return@rememberLauncherForActivityResult
+        val grantedFlags = data.flags and (
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        )
+        val requiredFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        if ((grantedFlags and requiredFlags) != requiredFlags) {
+            vm.reportPhoneFolderError("Android did not grant read/write access to this folder. Please choose another folder.")
+            return@rememberLauncherForActivityResult
+        }
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(uri, grantedFlags)
+        }.onSuccess {
             vm.setPhoneTree(uri)
+        }.onFailure { error ->
+            vm.reportPhoneFolderError(
+                "Could not keep access to this folder: ${error.message ?: error::class.java.simpleName}",
+            )
         }
     }
 
@@ -130,7 +142,18 @@ fun FileTransferScreen(
 
             TransferSection(title = "Phone") {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { choosePhoneFolder.launch(null) }, enabled = !state.busy) {
+                    OutlinedButton(
+                        onClick = {
+                            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                                addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                                addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+                            }
+                            choosePhoneFolder.launch(intent)
+                        },
+                        enabled = !state.busy,
+                    ) {
                         Text(if (state.phoneTreeUri == null) "Choose folder" else "Change folder")
                     }
                     Text(
