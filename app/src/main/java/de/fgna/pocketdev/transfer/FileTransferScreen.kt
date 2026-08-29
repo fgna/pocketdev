@@ -2,6 +2,7 @@ package de.fgna.pocketdev.transfer
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
@@ -39,6 +41,12 @@ fun FileTransferScreen(
 ) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
+    val selectedPhoneFolder = state.phoneTreeUri?.let { value ->
+        runCatching {
+            val uri = Uri.parse(value)
+            DocumentFile.fromTreeUri(context, uri)?.name ?: uri.lastPathSegment
+        }.getOrNull()
+    }
     val choosePhoneFolder = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
         val data = result.data
@@ -156,12 +164,24 @@ fun FileTransferScreen(
                     ) {
                         Text(if (state.phoneTreeUri == null) "Choose folder" else "Change folder")
                     }
-                    Text(
-                        if (state.phoneTreeUri == null) "No transfer folder selected" else "Dedicated folder selected",
-                        modifier = Modifier.padding(top = 12.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Column(modifier = Modifier.padding(top = 8.dp)) {
+                        Text(
+                            when {
+                                state.phoneTreeUri == null -> "No transfer folder selected"
+                                !selectedPhoneFolder.isNullOrBlank() -> selectedPhoneFolder
+                                else -> "Selected folder"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        if (state.phoneTreeUri != null) {
+                            Text(
+                                "Saved phone transfer folder",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
                 Text(
                     "${state.selectedPhoneFiles.size} selected",
