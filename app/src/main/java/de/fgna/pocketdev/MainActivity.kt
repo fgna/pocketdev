@@ -404,7 +404,7 @@ private fun PocketDevHome(
                                 },
                             )
                         }
-                        if (execution.exitCode != null && execution.exitCode != 0) TextButton(onClick = onIssueDraft) { Text("Issue draft") }
+                        if (execution.exitCode != null && execution.exitCode != 0) TextButton(onClick = onIssueDraft) { Text("Git Issue") }
                         TextButton(onClick = { onCopy(execution.combinedOutput) }, enabled = execution.combinedOutput.isNotBlank()) { Text("Copy") }
                     }
                     Text(execution.combinedOutput.ifBlank { "No output yet." }, style = MaterialTheme.typography.bodySmall)

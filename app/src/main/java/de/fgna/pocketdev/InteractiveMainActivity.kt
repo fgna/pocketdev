@@ -36,6 +36,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.fgna.pocketdev.ssh.SshjCommandExecutor
+import de.fgna.pocketdev.transfer.FileTransferScreen
+import de.fgna.pocketdev.transfer.TransferActivityRegistry
 import de.fgna.pocketdev.ui.PocketDevTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -53,11 +55,12 @@ class InteractiveMainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
-        // Start foreground protection before Android backgrounds the Activity, but only
-        // when the executor actually owns a user command. Starting the service while idle
-        // creates a misleading "command running" notification with nothing to control.
-        if (SshjCommandExecutor.activeUserCommandCount() > 0) {
-            CommandKeepAliveService.ensureRunning(this)
+        // Protect real SSH commands and real data transfers before Android backgrounds the
+        // Activity. Idle app switching must not create a phantom foreground notification.
+        val commands = SshjCommandExecutor.activeUserCommandCount()
+        val transfers = TransferActivityRegistry.activeCount()
+        if (commands > 0 || transfers > 0) {
+            CommandKeepAliveService.ensureRunning(this, transferHint = commands == 0 && transfers > 0)
         }
         super.onPause()
     }
@@ -71,14 +74,19 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     val command = state.command
     val activeProjectId = state.project?.id.orEmpty()
     val anyCommandRunning = state.sessions.values.any { it.command.running }
+    val anyArtifactDownloading = state.sessions.values.any { it.artifact.downloading }
+    var showFiles by remember { mutableStateOf(false) }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { /* A foreground service can still run if notification permission is declined. */ }
 
-    LaunchedEffect(anyCommandRunning) {
-        if (anyCommandRunning) {
-            CommandKeepAliveService.ensureRunning(context)
+    LaunchedEffect(anyCommandRunning, anyArtifactDownloading) {
+        if (anyCommandRunning || anyArtifactDownloading) {
+            CommandKeepAliveService.ensureRunning(
+                context,
+                transferHint = anyArtifactDownloading && !anyCommandRunning,
+            )
             if (
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -95,24 +103,38 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        PocketDevApp(vm)
+        if (showFiles) {
+            FileTransferScreen(onBack = { showFiles = false })
+        } else {
+            PocketDevApp(vm)
 
-        if (command.running && !command.awaitingSudoPassword) {
             Button(
-                onClick = {
-                    scope.launch {
-                        val stopped = cancelActiveCommand()
-                        if (!stopped) {
-                            Toast.makeText(context, "Active remote command was not found.", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                },
+                onClick = { showFiles = true },
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
+                    .align(Alignment.BottomStart)
                     .navigationBarsPadding()
-                    .padding(end = 16.dp, bottom = 104.dp),
+                    .padding(start = 16.dp, bottom = 104.dp),
             ) {
-                Text("Stop · Ctrl-C")
+                Text("Files")
+            }
+
+            if (command.running && !command.awaitingSudoPassword) {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            val stopped = cancelActiveCommand()
+                            if (!stopped) {
+                                Toast.makeText(context, "Active remote command was not found.", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .navigationBarsPadding()
+                        .padding(end = 16.dp, bottom = 104.dp),
+                ) {
+                    Text("Stop · Ctrl-C")
+                }
             }
         }
     }

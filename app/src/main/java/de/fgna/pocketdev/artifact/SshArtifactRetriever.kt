@@ -5,6 +5,7 @@ import de.fgna.pocketdev.project.ProjectCommandBuilder
 import de.fgna.pocketdev.project.ProjectConfig
 import de.fgna.pocketdev.ssh.AuthMode
 import de.fgna.pocketdev.ssh.SshProfile
+import de.fgna.pocketdev.transfer.TransferActivityRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.schmizz.sshj.DefaultSecurityProviderConfig
@@ -39,7 +40,37 @@ class SshArtifactRetriever : ArtifactRetriever {
         destinationDir: File,
     ): DownloadedArtifact = withContext(Dispatchers.IO) {
         require(profile.hostKeySha256.isNotBlank()) { "Trust the SSH server before downloading artifacts." }
+        val transferId = TransferActivityRegistry.begin()
+        try {
+            var lastFailure: Exception? = null
+            repeat(MAX_DOWNLOAD_ATTEMPTS) { attempt ->
+                try {
+                    return@withContext downloadLatestApkOnce(profile, secret, project, destinationDir)
+                } catch (error: Exception) {
+                    lastFailure = error
+                    cleanupDestination(destinationDir)
+                    if (attempt < MAX_DOWNLOAD_ATTEMPTS - 1) {
+                        Thread.sleep(RETRY_DELAY_MS * (attempt + 1))
+                    }
+                }
+            }
 
+            val cause = lastFailure
+            error(
+                "APK download failed after $MAX_DOWNLOAD_ATTEMPTS attempts: " +
+                    (cause?.message ?: cause?.javaClass?.simpleName ?: "unknown error"),
+            )
+        } finally {
+            TransferActivityRegistry.end(transferId)
+        }
+    }
+
+    private fun downloadLatestApkOnce(
+        profile: SshProfile,
+        secret: String,
+        project: ProjectConfig,
+        destinationDir: File,
+    ): DownloadedArtifact {
         val ssh = connect(profile)
         try {
             authenticate(ssh, profile, secret)
@@ -47,8 +78,8 @@ class SshArtifactRetriever : ArtifactRetriever {
             val remotePath = project.remotePath.trimEnd('/') + "/" + relativePath.removePrefix("./")
             val remoteSha256 = remoteSha256(ssh, remotePath)
 
+            cleanupDestination(destinationDir)
             destinationDir.mkdirs()
-            destinationDir.listFiles()?.forEach { old -> if (old.isFile) old.delete() }
 
             // Use a fresh local filename for every retrieval. Android's package installer may
             // reuse/carry cached state for an identical FileProvider URI even after the backing
@@ -69,7 +100,7 @@ class SshArtifactRetriever : ArtifactRetriever {
             }
             File(localFile.absolutePath + VERIFIED_SUFFIX).writeText(localSha256)
 
-            DownloadedArtifact(
+            return DownloadedArtifact(
                 remotePath = remotePath,
                 localFile = localFile,
                 sizeBytes = localFile.length(),
@@ -78,6 +109,13 @@ class SshArtifactRetriever : ArtifactRetriever {
         } finally {
             runCatching { ssh.disconnect() }
             runCatching { ssh.close() }
+        }
+    }
+
+    private fun cleanupDestination(destinationDir: File) {
+        destinationDir.mkdirs()
+        destinationDir.listFiles()?.forEach { old ->
+            if (old.isFile) old.delete()
         }
     }
 
@@ -173,6 +211,8 @@ class SshArtifactRetriever : ArtifactRetriever {
 
     companion object {
         const val VERIFIED_SUFFIX = ".sha256-verified"
+        private const val MAX_DOWNLOAD_ATTEMPTS = 3
+        private const val RETRY_DELAY_MS = 750L
         private val SHA256 = Regex("^[0-9a-fA-F]{64}$")
     }
 }
