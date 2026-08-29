@@ -44,10 +44,16 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
         FileTransferState(
             serverPath = prefs.getString(KEY_SERVER_PATH, SshFileTransferClient.DEFAULT_SERVER_PATH)
                 ?: SshFileTransferClient.DEFAULT_SERVER_PATH,
-            phoneTreeUri = prefs.getString(KEY_PHONE_TREE, null),
+            phoneTreeUri = prefs.getString(KEY_PHONE_TREE, null)?.takeIf(::hasPersistedPhonePermission),
         ),
     )
     val state: StateFlow<FileTransferState> = _state.asStateFlow()
+
+    init {
+        if (prefs.contains(KEY_PHONE_TREE) && _state.value.phoneTreeUri == null) {
+            prefs.edit().remove(KEY_PHONE_TREE).apply()
+        }
+    }
 
     fun setServerPath(value: String) {
         _state.update { it.copy(serverPath = value, message = null, error = null) }
@@ -61,6 +67,10 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun setPhoneTree(uri: Uri) {
+        if (!hasPersistedPhonePermission(uri.toString())) {
+            reportPhoneFolderError("Android did not grant persistent read/write access to this folder. Choose the folder again and confirm 'Use this folder'.")
+            return
+        }
         prefs.edit().putString(KEY_PHONE_TREE, uri.toString()).apply()
         _state.update {
             it.copy(
@@ -71,6 +81,10 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
             )
         }
         refreshPhoneFiles()
+    }
+
+    fun reportPhoneFolderError(message: String) {
+        _state.update { it.copy(error = message, message = null) }
     }
 
     fun toggleServerFile(name: String) {
@@ -228,8 +242,17 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
     }
 
     private fun phoneRoot(): DocumentFile? {
-        val uri = _state.value.phoneTreeUri?.let(Uri::parse) ?: return null
+        val uriString = _state.value.phoneTreeUri ?: return null
+        if (!hasPersistedPhonePermission(uriString)) return null
+        val uri = Uri.parse(uriString)
         return DocumentFile.fromTreeUri(getApplication(), uri)?.takeIf { it.isDirectory }
+    }
+
+    private fun hasPersistedPhonePermission(uriString: String): Boolean {
+        val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return false
+        return getApplication<Application>().contentResolver.persistedUriPermissions.any { permission ->
+            permission.uri == uri && permission.isReadPermission && permission.isWritePermission
+        }
     }
 
     private fun readPhoneFiles(): List<PhoneTransferFile> {
