@@ -4,6 +4,10 @@ PocketDev is a mobile-first Android control surface for a remote development ser
 
 PocketDev connects directly to an existing development machine over SSH. It can manage multiple projects, run remote commands with streaming output, keep long-running work alive in the background, retrieve and install APK artifacts, transfer files between phone and server, and prepare a reviewable GitHub issue draft from failed commands.
 
+<p align="center">
+  <img src="docs/assets/pocketdev.webp" alt="PocketDev Android app showing project controls and remote build output" width="420">
+</p>
+
 ## Why PocketDev
 
 PocketDev is useful when the real development environment already lives on a workstation or server, but you want to handle routine development loops from a phone: pull, test, build, inspect failures, retrieve an APK, move a file, or stop a command without opening a laptop or using a general-purpose mobile SSH client.
