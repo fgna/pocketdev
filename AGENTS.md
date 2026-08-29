@@ -1,210 +1,134 @@
-# PocketDev
+# PocketDev repository guidance
 
-## Purpose
+## Product purpose
 
-PocketDev is a mobile-first Android app for controlling a remote development environment from a phone.
+PocketDev is a mobile-first Android control surface for an existing development server. It should make common remote development and debugging workflows practical from a phone without becoming a miniature desktop IDE.
 
-The core idea is to make common vibe-coding and debugging workflows practical on a small touchscreen without turning the phone into a full IDE.
+The app connects directly over SSH, manages saved remote projects, runs commands with streaming output, retrieves and installs APKs, transfers files, and prepares reviewable GitHub issue diagnostics after failures.
 
-The app connects to an existing development server over SSH, runs project commands there, presents their output in a mobile-friendly way, retrieves build artifacts such as APK files, and helps turn failures into useful GitHub issues or diagnostic bundles.
+## Current product state
 
-## Product goal
+PocketDev 1.x has completed its original end-to-end milestone. Development is now maintenance- and friction-driven rather than sprint/MVP-driven. Historical sprint documents under `docs/` are retained for context only.
 
-A user should be able to pick up their phone and complete this loop with minimal typing:
+Current accepted capabilities include:
 
-1. connect to a configured development server via SSH;
-2. select a project directory;
-3. inspect Git state and pull current changes;
-4. run predefined tests or build commands;
-5. see readable command output and failures;
-6. retrieve a generated APK or other build artifact to the phone;
-7. package a failure with useful context and create a GitHub issue or copy/export the diagnostic information.
+- pinned-host SSH profile and protected secret storage;
+- multiple project configurations and project switching;
+- remembered remote working directory and current Git branch display;
+- predefined Pull / Test / Build actions and arbitrary multi-line commands;
+- streaming stdout/stderr and exit status;
+- Stop/Ctrl-C and interactive sudo support;
+- persistent remote `ssh-agent` integration for GitHub SSH keys;
+- missing-project bootstrap/clone flow;
+- SHA-256-verified APK retrieval and PackageInstaller flow;
+- foreground protection for long-running commands and transfers;
+- APK retrieval retry after transient SSH/SFTP failures;
+- project-independent two-way Files transfer page;
+- reviewable `Git Issue` diagnostic flow for failed commands.
 
-PocketDev should feel like a mobile control panel for an existing dev machine, not like a miniature desktop terminal.
+## Architecture
 
-## MVP
-
-The first useful end-to-end version should support:
-
-- Android app with a touch-friendly UI;
-- SSH connection profiles;
-- SSH key authentication where practical;
-- configurable project entries pointing to directories on the server;
-- project-level predefined commands;
-- one-tap actions for common commands such as:
-  - `git status`
-  - `git pull`
-  - tests
-  - build
-- an interactive terminal for commands that are not predefined;
-- easy copy/paste of commands and output;
-- streaming command output;
-- clear success/failure state including exit code;
-- readable extraction or highlighting of relevant error output;
-- discovery of configured build artifacts, initially APK files;
-- download of an APK to the Android device;
-- preparation of a diagnostic package containing at least:
-  - failed command;
-  - exit code;
-  - relevant logs;
-  - current branch;
-  - current commit;
-  - `git status`;
-- GitHub integration that can create an issue from that diagnostic package, or at minimum produce text that can be pasted into an issue.
-
-## Suggested first platform
-
-Use native Android with Kotlin and Jetpack Compose unless implementation evidence strongly suggests another choice.
-
-For the MVP, prefer direct SSH execution from the Android app. Do not require a custom server daemon merely to get started.
-
-The intended initial architecture is:
+Keep the architecture direct and testable:
 
 ```text
-Android / PocketDev
+Jetpack Compose UI
         |
-       SSH
+ViewModel / project and execution state
+        |
+SSH, artifact and file-transfer abstractions
+        |
+SSHJ
         |
 Existing development server
-        |
-Git + Gradle/npm/etc. + project files
 ```
 
-A small optional server-side agent may be introduced later if direct SSH becomes too limiting for reliable job management, artifact discovery, structured test results, reconnectable long-running builds, or richer live status.
+Do not introduce a required server daemon unless a concrete limitation of direct SSH justifies it.
 
-## Mobile UX principles
+UI code should not own SSH implementation details. Project configuration should remain separate from transport code so non-Android remote projects can still be controlled.
 
-The terminal is a fallback and power-user surface, not the primary interface.
+## UX principles
 
-Prefer large touch targets and task-oriented actions such as:
-
-```text
-my-taskOS
-main · clean
-
-[ Pull ]
-[ Test ]
-[ Build APK ]
-[ Terminal ]
-
-Last build
-✓ assembleDebug
-app-debug.apk     [ Download ]
-
-Recent failures
-✗ testDebugUnitTest
-MainActivityTest.kt:83
-[ Copy ] [ Create Issue ]
-```
-
-Important UX properties:
+PocketDev is a task-oriented mobile control panel. Preserve these priorities:
 
 - minimize keyboard use;
-- make frequent commands one tap;
-- make command/output copy and paste easy;
-- keep logs readable on a narrow display;
-- allow expanding full raw output when needed;
-- make failures more prominent than normal command noise;
-- make project switching fast;
-- preserve enough command history to recover context after interruptions.
+- keep common actions one tap away;
+- make project identity, branch and working directory clear;
+- keep command output readable on a narrow display;
+- preserve command state across normal interruptions;
+- make failure actions obvious without overwhelming successful runs;
+- keep destructive actions explicit;
+- use symmetric, predictable UI patterns where two concepts are equivalent (for example server/phone transfer directories).
 
-## Project configuration
+The arbitrary command field is an important power-user surface, but the app should not drift into being a full terminal emulator or source editor.
 
-Prefer project-specific configuration rather than hard-coding Gradle or Android assumptions into the core domain.
+## SSH and background execution
 
-A future configuration could express concepts like:
+Security and execution reliability are non-negotiable:
 
-```yaml
-name: my-taskOS
-path: ~/Projects/my-taskOS
-commands:
-  status: git status --short --branch
-  pull: git pull --ff-only
-  test: ./gradlew testDebugUnitTest
-  build: ./gradlew assembleDebug
-artifacts:
-  - android/app/build/outputs/apk/debug/*.apk
+- never disable host-key verification;
+- use the persisted pinned host fingerprint;
+- never log secrets or put passphrases into command lines;
+- keep Git SSH passphrases ephemeral and send them only through command stdin;
+- preserve exact command IDs for cancellation;
+- foreground-service notifications must correspond to real active work;
+- Stop actions must not claim to cancel work they do not own;
+- transfers and long-running commands should survive ordinary app switching/screen-off when Android permits it.
+
+Do not claim guarantees across force-stop, reboot or process death unless specifically implemented and tested.
+
+## APK handling
+
+APK retrieval must keep the integrity chain intact:
+
+1. discover the remote APK;
+2. calculate the remote SHA-256;
+3. download to a fresh local file;
+4. calculate and compare the local SHA-256;
+5. only then hand the verified APK to Android's installer.
+
+Transient SSH/SFTP failures may be retried with fresh connections, but retries must never bypass integrity verification.
+
+## File transfer
+
+The Files page is project-independent. It uses the same trusted SSH profile but its own transfer directories.
+
+- server transfer path is configurable;
+- Android folder access uses the Storage Access Framework and persisted URI permission;
+- do not request broad storage permissions merely for convenience;
+- transfers should expose progress and clear success/error state;
+- filenames and remote paths must remain safely handled/quoted.
+
+## GitHub diagnostics
+
+`Git Issue` means preparing a reviewable issue flow, not silently publishing data. Diagnostic content must avoid credentials, private keys, environment secrets and arbitrary source/diff uploads.
+
+The user should be able to see what is being shared before leaving PocketDev for GitHub.
+
+## Repository workflow
+
+Use GitHub issues for concrete backlog work. Keep focused branches and PRs; merge only after the relevant local/device gate is satisfied.
+
+Before claiming a build succeeded, use an actual build result. Do not infer CI/build success from code inspection.
+
+For Android validation, the standard local gate is:
+
+```bash
+./gradlew testDebugUnitTest assembleDebug
+adb install -r --user 0 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The exact format is not yet fixed. Keep the command and artifact model general enough to support non-Android projects later.
+When repository changes are documentation-only, device validation is generally unnecessary, but syntax/build-affecting maintenance still needs an appropriate local check.
 
-## GitHub integration
+## Non-goals
 
-The useful unit is not merely "open GitHub". PocketDev should help create a reproducible issue from the current failure.
+Unless a new issue explicitly establishes the need, avoid expanding PocketDev into:
 
-A generated issue/diagnostic bundle should make it easy to include:
-
-- project name;
-- branch and commit SHA;
-- command that failed;
-- exit code;
-- concise relevant output;
-- optionally full log attachment or expandable section;
-- `git status`;
-- optionally `git diff` when the user explicitly chooses to include it;
-- build artifact or device context when relevant.
-
-Do not silently upload source code, diffs, secrets, environment variables, SSH credentials, or arbitrary logs. The user must be able to review what is shared.
-
-## Security constraints
-
-Treat SSH credentials and GitHub tokens as sensitive secrets.
-
-- use Android secure credential storage where appropriate;
-- never persist private keys or tokens in plaintext application files or logs;
-- never include credentials in diagnostic bundles;
-- do not execute arbitrary server-provided commands without a clear user action;
-- show the project and command being executed;
-- make destructive commands distinguishable from normal actions if such commands are supported later.
-
-## Non-goals for the first version
-
-Do not expand the MVP into any of the following unless required to complete the core loop:
-
-- full source-code editor;
-- desktop IDE replacement;
-- embedded AI coding agent;
-- custom remote build farm;
-- general CI/CD platform;
-- Git GUI covering every Git operation;
-- mandatory PocketDev server daemon;
+- a full source-code editor or desktop IDE replacement;
+- an embedded AI coding agent;
+- a general-purpose CI/CD platform;
+- a full Git GUI;
+- a mandatory custom remote daemon;
 - multi-user/team administration;
 - complex deployment orchestration.
 
-These may be explored later, but they must not block the first useful mobile workflow.
-
-## First milestone
-
-Prove one complete real workflow against one existing development server and one Android project:
-
-1. save/connect to the SSH server;
-2. configure one project path;
-3. run `git status`;
-4. run a real test command;
-5. run a real APK build;
-6. stream and display output correctly;
-7. detect success/failure and exit code;
-8. locate the resulting APK;
-9. download it to the phone;
-10. for a deliberately failing command, generate a clean diagnostic summary suitable for a GitHub issue.
-
-### Milestone completion criterion
-
-The milestone is complete when the entire workflow can be performed from the phone without opening a separate SSH client, manually browsing the server filesystem for the APK, or manually assembling the failure context.
-
-## Implementation guidance for agents
-
-When starting implementation:
-
-1. keep the architecture small and testable;
-2. establish the SSH execution abstraction first;
-3. keep project/command configuration separate from UI code;
-4. model command execution as structured state rather than raw terminal text only;
-5. preserve stdout, stderr, exit code, start/end state, and the exact executed command;
-6. build a narrow vertical slice before adding many screens;
-7. use a real server/project for validation as early as practical;
-8. avoid speculative abstractions for a future server daemon until direct SSH limitations are observed;
-9. add tests around command state, error extraction, project configuration, and diagnostic bundle generation;
-10. optimize for the phone workflow, not for feature parity with desktop developer tools.
-
-If no implementation exists yet, the recommended first task is to create the smallest Android/Compose shell that can store one SSH profile and execute one harmless remote command while streaming its output into the UI.
+Keep new work tied to demonstrated friction in the existing phone-to-development-server workflow.
