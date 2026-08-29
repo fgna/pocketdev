@@ -149,7 +149,36 @@ fun FileTransferScreen(
             }
 
             TransferSection(title = "Phone") {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small,
+                    tonalElevation = 0.dp,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        Text(
+                            "Transfer directory",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            when {
+                                state.phoneTreeUri == null -> "No folder selected"
+                                !selectedPhoneFolder.isNullOrBlank() -> selectedPhoneFolder
+                                else -> "Selected folder"
+                            },
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                }
+                Text(
+                    if (state.phoneTreeUri == null) "Choose a dedicated Android transfer folder." else "Saved Android transfer folder",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         onClick = {
                             val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
@@ -164,30 +193,13 @@ fun FileTransferScreen(
                     ) {
                         Text(if (state.phoneTreeUri == null) "Choose folder" else "Change folder")
                     }
-                    Column(modifier = Modifier.padding(top = 8.dp)) {
-                        Text(
-                            when {
-                                state.phoneTreeUri == null -> "No transfer folder selected"
-                                !selectedPhoneFolder.isNullOrBlank() -> selectedPhoneFolder
-                                else -> "Selected folder"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        if (state.phoneTreeUri != null) {
-                            Text(
-                                "Saved phone transfer folder",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
+                    Text(
+                        "${state.selectedPhoneFiles.size} selected",
+                        modifier = Modifier.padding(top = 12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-                Text(
-                    "${state.selectedPhoneFiles.size} selected",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 FileList(
                     entries = state.phoneFiles.map { Triple(it.name, it.sizeBytes, it.directory) },
                     selected = state.selectedPhoneFiles,
