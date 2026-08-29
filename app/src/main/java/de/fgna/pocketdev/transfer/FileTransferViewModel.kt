@@ -126,40 +126,45 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
         if (selected.isEmpty() || _state.value.busy) return
         _state.update { it.copy(busy = true, progress = "Preparing ${selected.size} file(s)…", error = null, message = null) }
         viewModelScope.launch {
-            runCatching {
-                val app = getApplication<Application>()
-                val (profile, secret) = profileAndSecret()
-                val staging = File(app.cacheDir, "transfer/upload").apply {
-                    deleteRecursively()
-                    mkdirs()
-                }
-                val localFiles = selected.map { item ->
-                    val name = item.name.trim()
-                    require(name.isNotBlank() && name != "." && name != ".." && '/' !in name && '\\' !in name) {
-                        "Unsafe transfer filename: ${item.name}"
+            val transferId = TransferActivityRegistry.begin()
+            try {
+                runCatching {
+                    val app = getApplication<Application>()
+                    val (profile, secret) = profileAndSecret()
+                    val staging = File(app.cacheDir, "transfer/upload").apply {
+                        deleteRecursively()
+                        mkdirs()
                     }
-                    val target = File(staging, name)
-                    app.contentResolver.openInputStream(Uri.parse(item.uri)).use { input ->
-                        requireNotNull(input) { "Could not open ${item.name}." }
-                        target.outputStream().use { output -> input.copyTo(output) }
+                    val localFiles = selected.map { item ->
+                        val name = item.name.trim()
+                        require(name.isNotBlank() && name != "." && name != ".." && '/' !in name && '\\' !in name) {
+                            "Unsafe transfer filename: ${item.name}"
+                        }
+                        val target = File(staging, name)
+                        app.contentResolver.openInputStream(Uri.parse(item.uri)).use { input ->
+                            requireNotNull(input) { "Could not open ${item.name}." }
+                            target.outputStream().use { output -> input.copyTo(output) }
+                        }
+                        target
                     }
-                    target
-                }
-                client.upload(profile, secret, _state.value.serverPath, localFiles) { current, total, name ->
-                    _state.update { it.copy(progress = "Uploading $current/$total · $name") }
-                }
-            }.onSuccess { resolvedPath ->
-                _state.update {
-                    it.copy(
-                        busy = false,
-                        progress = null,
-                        resolvedServerPath = resolvedPath,
-                        selectedPhoneFiles = emptySet(),
-                        message = "Upload completed.",
-                    )
-                }
-                refresh()
-            }.onFailure(::finishWithError)
+                    client.upload(profile, secret, _state.value.serverPath, localFiles) { current, total, name ->
+                        _state.update { it.copy(progress = "Uploading $current/$total · $name") }
+                    }
+                }.onSuccess { resolvedPath ->
+                    _state.update {
+                        it.copy(
+                            busy = false,
+                            progress = null,
+                            resolvedServerPath = resolvedPath,
+                            selectedPhoneFiles = emptySet(),
+                            message = "Upload completed.",
+                        )
+                    }
+                    refresh()
+                }.onFailure(::finishWithError)
+            } finally {
+                TransferActivityRegistry.end(transferId)
+            }
         }
     }
 
@@ -172,40 +177,45 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
         }
         _state.update { it.copy(busy = true, progress = "Downloading ${selected.size} file(s)…", error = null, message = null) }
         viewModelScope.launch {
-            runCatching {
-                val app = getApplication<Application>()
-                val (profile, secret) = profileAndSecret()
-                val staging = File(app.cacheDir, "transfer/download")
-                val files = client.download(
-                    profile,
-                    secret,
-                    _state.value.serverPath,
-                    selected.map { it.name },
-                    staging,
-                ) { current, total, name ->
-                    _state.update { it.copy(progress = "Downloading $current/$total · $name") }
-                }
-                files.forEachIndexed { index, file ->
-                    _state.update { it.copy(progress = "Saving ${index + 1}/${files.size} · ${file.name}") }
-                    phoneRoot.findFile(file.name)?.delete()
-                    val target = phoneRoot.createFile("application/octet-stream", file.name)
-                        ?: error("Could not create ${file.name} in the phone transfer directory.")
-                    app.contentResolver.openOutputStream(target.uri, "w").use { output ->
-                        requireNotNull(output) { "Could not write ${file.name}." }
-                        file.inputStream().use { input -> input.copyTo(output) }
+            val transferId = TransferActivityRegistry.begin()
+            try {
+                runCatching {
+                    val app = getApplication<Application>()
+                    val (profile, secret) = profileAndSecret()
+                    val staging = File(app.cacheDir, "transfer/download")
+                    val files = client.download(
+                        profile,
+                        secret,
+                        _state.value.serverPath,
+                        selected.map { it.name },
+                        staging,
+                    ) { current, total, name ->
+                        _state.update { it.copy(progress = "Downloading $current/$total · $name") }
                     }
-                }
-            }.onSuccess {
-                _state.update {
-                    it.copy(
-                        busy = false,
-                        progress = null,
-                        selectedServerFiles = emptySet(),
-                        message = "Download completed.",
-                    )
-                }
-                refresh()
-            }.onFailure(::finishWithError)
+                    files.forEachIndexed { index, file ->
+                        _state.update { it.copy(progress = "Saving ${index + 1}/${files.size} · ${file.name}") }
+                        phoneRoot.findFile(file.name)?.delete()
+                        val target = phoneRoot.createFile("application/octet-stream", file.name)
+                            ?: error("Could not create ${file.name} in the phone transfer directory.")
+                        app.contentResolver.openOutputStream(target.uri, "w").use { output ->
+                            requireNotNull(output) { "Could not write ${file.name}." }
+                            file.inputStream().use { input -> input.copyTo(output) }
+                        }
+                    }
+                }.onSuccess {
+                    _state.update {
+                        it.copy(
+                            busy = false,
+                            progress = null,
+                            selectedServerFiles = emptySet(),
+                            message = "Download completed.",
+                        )
+                    }
+                    refresh()
+                }.onFailure(::finishWithError)
+            } finally {
+                TransferActivityRegistry.end(transferId)
+            }
         }
     }
 
