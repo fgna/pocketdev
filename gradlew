@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-GRADLE_VERSION=8.11.1
+GRADLE_VERSION=9.5.0
 CACHE_DIR="${GRADLE_USER_HOME:-$HOME/.gradle}/wrapper-bootstrap/gradle-$GRADLE_VERSION"
 ZIP="$CACHE_DIR/gradle-$GRADLE_VERSION-bin.zip"
 DIST="$CACHE_DIR/gradle-$GRADLE_VERSION"
