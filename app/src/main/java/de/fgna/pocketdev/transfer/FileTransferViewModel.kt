@@ -44,16 +44,10 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
         FileTransferState(
             serverPath = prefs.getString(KEY_SERVER_PATH, SshFileTransferClient.DEFAULT_SERVER_PATH)
                 ?: SshFileTransferClient.DEFAULT_SERVER_PATH,
-            phoneTreeUri = prefs.getString(KEY_PHONE_TREE, null)?.takeIf(::hasPersistedPhonePermission),
+            phoneTreeUri = prefs.getString(KEY_PHONE_TREE, null),
         ),
     )
     val state: StateFlow<FileTransferState> = _state.asStateFlow()
-
-    init {
-        if (prefs.contains(KEY_PHONE_TREE) && _state.value.phoneTreeUri == null) {
-            prefs.edit().remove(KEY_PHONE_TREE).apply()
-        }
-    }
 
     fun setServerPath(value: String) {
         _state.update { it.copy(serverPath = value, message = null, error = null) }
@@ -67,8 +61,9 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun setPhoneTree(uri: Uri) {
-        if (!hasPersistedPhonePermission(uri.toString())) {
-            reportPhoneFolderError("Android did not grant persistent read/write access to this folder. Choose the folder again and confirm 'Use this folder'.")
+        val root = usablePhoneRoot(uri)
+        if (root == null) {
+            reportPhoneFolderError("PocketDev cannot read and write this folder. Please choose another folder and confirm 'Use this folder'.")
             return
         }
         prefs.edit().putString(KEY_PHONE_TREE, uri.toString()).apply()
@@ -186,7 +181,7 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
         val selected = _state.value.serverFiles.filter { !it.directory && it.name in _state.value.selectedServerFiles }
         if (selected.isEmpty() || _state.value.busy) return
         val phoneRoot = phoneRoot() ?: run {
-            _state.update { it.copy(error = "Choose a phone transfer directory first.") }
+            _state.update { it.copy(error = "The saved phone transfer folder is no longer accessible. Choose it again.") }
             return
         }
         _state.update { it.copy(busy = true, progress = "Downloading ${selected.size} file(s)…", error = null, message = null) }
@@ -243,20 +238,19 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
 
     private fun phoneRoot(): DocumentFile? {
         val uriString = _state.value.phoneTreeUri ?: return null
-        if (!hasPersistedPhonePermission(uriString)) return null
-        val uri = Uri.parse(uriString)
-        return DocumentFile.fromTreeUri(getApplication(), uri)?.takeIf { it.isDirectory }
+        val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return null
+        return usablePhoneRoot(uri)
     }
 
-    private fun hasPersistedPhonePermission(uriString: String): Boolean {
-        val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return false
-        return getApplication<Application>().contentResolver.persistedUriPermissions.any { permission ->
-            permission.uri == uri && permission.isReadPermission && permission.isWritePermission
-        }
+    private fun usablePhoneRoot(uri: Uri): DocumentFile? {
+        val root = runCatching { DocumentFile.fromTreeUri(getApplication(), uri) }.getOrNull() ?: return null
+        if (!root.isDirectory || !root.canRead() || !root.canWrite()) return null
+        return root
     }
 
     private fun readPhoneFiles(): List<PhoneTransferFile> {
-        val root = phoneRoot() ?: return emptyList()
+        val uriString = _state.value.phoneTreeUri ?: return emptyList()
+        val root = phoneRoot() ?: error("The saved phone transfer folder is no longer accessible. Choose it again.")
         return root.listFiles()
             .mapNotNull { file ->
                 val name = file.name ?: return@mapNotNull null
