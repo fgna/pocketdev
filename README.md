@@ -4,6 +4,12 @@ PocketDev is a mobile-first Android control surface for a remote development ser
 
 PocketDev connects directly to an existing development machine over SSH. It can manage multiple projects, run remote commands with streaming output, keep long-running work alive in the background, retrieve and install APK artifacts, transfer files between phone and server, and prepare a reviewable GitHub issue draft from failed commands.
 
+## Why PocketDev
+
+PocketDev is useful when the real development environment already lives on a workstation or server, but you want to handle routine development loops from a phone: pull, test, build, inspect failures, retrieve an APK, move a file, or stop a command without opening a laptop or using a general-purpose mobile SSH client.
+
+The project deliberately stays a control surface rather than becoming a miniature IDE. Source editing and heavy development tooling remain on the remote machine.
+
 ## Current state
 
 PocketDev 1.x is functionally complete for its intended core workflow and is maintained through issues found during normal use. Historical sprint plans are kept under `docs/` for context; they are not the current roadmap.
@@ -28,11 +34,9 @@ PocketDev 1.x is functionally complete for its intended core workflow and is mai
 - Android SDK with API 37 available
 - Android device or emulator for installation/device testing
 
-The repository currently expects a Gradle wrapper to be checked in. If a clone is missing `gradlew`, generate/copy a compatible wrapper before building; repository hygiene issue #66 tracks this final bootstrap detail.
+The Gradle wrapper is checked into the repository, so no global Gradle installation is required.
 
 ## Build and test
-
-Once the Gradle wrapper is present:
 
 ```bash
 ./gradlew testDebugUnitTest assembleDebug
@@ -68,6 +72,8 @@ PocketDev deliberately uses direct SSH and does not require a custom server daem
 
 ## Security model
 
+PocketDev assumes the SSH server is infrastructure you already control. It is not a service for exposing a development machine directly to the public internet.
+
 - SSH host keys are pinned; host verification must not be disabled.
 - Credentials and private keys must never be logged or committed.
 - Stored authentication secrets use Android-side protected storage rather than ordinary plaintext preferences.
@@ -81,3 +87,7 @@ PocketDev deliberately uses direct SSH and does not require a custom server daem
 - `docs/apk-signing.md` — APK signing notes.
 - `docs/git-key-agent.md` — persistent Git SSH-agent behavior.
 - `docs/user-testing-apk-installer.md` — APK installer test notes.
+
+## License
+
+PocketDev is available under the Apache License 2.0. See `LICENSE`.
