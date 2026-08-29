@@ -111,7 +111,7 @@ class SshFileTransferClient {
     private fun resolveDirectory(ssh: SSHClient, configuredPath: String): String {
         val requested = configuredPath.trim().ifBlank { DEFAULT_SERVER_PATH }
         val quoted = ProjectCommandBuilder.shellQuote(requested)
-        val command = "p=$quoted; case \"\$p\" in '~') p=\"\$HOME\" ;; '~/'*) p=\"\$HOME/\${p#~/}\" ;; esac; mkdir -p -- \"\$p\" && cd -- \"\$p\" && pwd -P"
+        val command = "p=$quoted; case \"\$p\" in '~') p=\"\$HOME\" ;; '~/'*) p=\"\$HOME/\${p#\\~/}\" ;; esac; mkdir -p -- \"\$p\" && cd -- \"\$p\" && pwd -P"
         ssh.startSession().use { session ->
             val remote = session.exec(command)
             val stdout = remote.inputStream.bufferedReader().readText().trim()
