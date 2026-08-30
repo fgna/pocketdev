@@ -14,4 +14,4 @@ Key features include:
 * foreground protection for long-running commands and transfers
 * reviewable diagnostic issue drafts
 
-PocketDev is free and open source software licensed under Apache-2.0.
+PocketDev is free and open source software licensed under GPL-3.0-or-later.
