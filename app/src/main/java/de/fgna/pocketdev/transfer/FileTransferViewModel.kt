@@ -98,6 +98,53 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    fun deleteServerFile(name: String) {
+        val file = _state.value.serverFiles.firstOrNull { it.name == name && !it.directory } ?: return
+        if (_state.value.busy) return
+        _state.update { it.copy(busy = true, progress = "Deleting ${file.name}…", error = null, message = null) }
+        viewModelScope.launch {
+            runCatching {
+                val (profile, secret) = profileAndSecret()
+                client.deleteFile(profile, secret, _state.value.serverPath, file.name)
+            }.onSuccess { resolvedPath ->
+                _state.update {
+                    it.copy(
+                        busy = false,
+                        progress = null,
+                        resolvedServerPath = resolvedPath,
+                        selectedServerFiles = it.selectedServerFiles - file.name,
+                        message = "Deleted ${file.name}.",
+                    )
+                }
+                refresh()
+            }.onFailure(::finishWithError)
+        }
+    }
+
+    fun deletePhoneFile(uri: String) {
+        val file = _state.value.phoneFiles.firstOrNull { it.uri == uri && !it.directory } ?: return
+        if (_state.value.busy) return
+        _state.update { it.copy(busy = true, progress = "Deleting ${file.name}…", error = null, message = null) }
+        viewModelScope.launch {
+            runCatching {
+                val root = phoneRoot() ?: error("The saved phone transfer folder is no longer accessible. Choose it again.")
+                val target = root.listFiles().firstOrNull { it.uri.toString() == file.uri && !it.isDirectory }
+                    ?: error("${file.name} is no longer in the phone transfer directory.")
+                require(target.delete()) { "Could not delete ${file.name}." }
+            }.onSuccess {
+                _state.update {
+                    it.copy(
+                        busy = false,
+                        progress = null,
+                        selectedPhoneFiles = it.selectedPhoneFiles - file.uri,
+                        message = "Deleted ${file.name}.",
+                    )
+                }
+                refresh()
+            }.onFailure(::finishWithError)
+        }
+    }
+
     fun refresh() {
         if (_state.value.busy) return
         _state.update { it.copy(busy = true, progress = "Refreshing…", error = null) }
