@@ -3,6 +3,7 @@ package de.fgna.pocketdev.transfer
 import android.app.Application
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -95,6 +96,62 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
             val selected = state.selectedPhoneFiles.toMutableSet()
             if (!selected.add(uri)) selected.remove(uri)
             state.copy(selectedPhoneFiles = selected)
+        }
+    }
+
+    fun deleteServerFile(name: String) {
+        val file = _state.value.serverFiles.firstOrNull { it.name == name && !it.directory } ?: return
+        if (_state.value.busy) return
+        _state.update { it.copy(busy = true, progress = "Deleting ${file.name}…", error = null, message = null) }
+        viewModelScope.launch {
+            runCatching {
+                val (profile, secret) = profileAndSecret()
+                client.deleteFile(profile, secret, _state.value.serverPath, file.name)
+            }.onSuccess { resolvedPath ->
+                _state.update {
+                    it.copy(
+                        busy = false,
+                        progress = null,
+                        resolvedServerPath = resolvedPath,
+                        selectedServerFiles = it.selectedServerFiles - file.name,
+                        message = "Deleted ${file.name}.",
+                    )
+                }
+                refresh()
+            }.onFailure(::finishWithError)
+        }
+    }
+
+    fun deletePhoneFile(uri: String) {
+        val file = _state.value.phoneFiles.firstOrNull { it.uri == uri && !it.directory } ?: return
+        if (_state.value.busy) return
+        _state.update { it.copy(busy = true, progress = "Deleting ${file.name}…", error = null, message = null) }
+        viewModelScope.launch {
+            runCatching {
+                val root = phoneRoot() ?: error("The saved phone transfer folder is no longer accessible. Choose it again.")
+                val target = root.listFiles().firstOrNull { it.uri.toString() == file.uri && !it.isDirectory }
+                    ?: error("${file.name} is no longer in the phone transfer directory.")
+                val app = getApplication<Application>()
+                val deleted = runCatching {
+                    DocumentsContract.deleteDocument(app.contentResolver, target.uri)
+                }.getOrElse {
+                    target.delete()
+                }
+                require(deleted) { "Could not delete ${file.name}. The selected folder may not allow deletion." }
+                val remaining = readPhoneFiles()
+                require(remaining.none { it.uri == file.uri }) { "Android reported success, but ${file.name} is still present." }
+                remaining
+            }.onSuccess { remaining ->
+                _state.update {
+                    it.copy(
+                        busy = false,
+                        progress = null,
+                        phoneFiles = remaining,
+                        selectedPhoneFiles = it.selectedPhoneFiles - file.uri,
+                        message = "Deleted ${file.name}.",
+                    )
+                }
+            }.onFailure(::finishWithError)
         }
     }
 

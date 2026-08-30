@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
@@ -28,6 +29,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -70,7 +74,13 @@ fun FileTransferScreen(
         }
     }
 
-    LaunchedEffect(Unit) { vm.refresh() }
+    LaunchedEffect(Unit) {
+        vm.refreshPhoneFiles()
+        vm.refresh()
+    }
+    LaunchedEffect(state.phoneTreeUri) {
+        if (state.phoneTreeUri != null) vm.refreshPhoneFiles()
+    }
 
     Scaffold(
         topBar = {
@@ -85,7 +95,13 @@ fun FileTransferScreen(
                             Text("Files", style = MaterialTheme.typography.titleLarge)
                             Text("Project-independent transfer", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        TextButton(onClick = vm::refresh, enabled = !state.busy) { Text("Refresh") }
+                        TextButton(
+                            onClick = {
+                                vm.refreshPhoneFiles()
+                                vm.refresh()
+                            },
+                            enabled = !state.busy,
+                        ) { Text("Refresh") }
                     }
                     HorizontalDivider()
                 }
@@ -132,6 +148,7 @@ fun FileTransferScreen(
                     selected = state.selectedServerFiles,
                     enabled = !state.busy,
                     onToggle = vm::toggleServerFile,
+                    onDelete = vm::deleteServerFile,
                 )
             }
 
@@ -206,6 +223,7 @@ fun FileTransferScreen(
                     keys = state.phoneFiles.map { it.uri },
                     enabled = !state.busy,
                     onToggle = vm::togglePhoneFile,
+                    onDelete = vm::deletePhoneFile,
                 )
             }
         }
@@ -233,21 +251,48 @@ private fun FileList(
     enabled: Boolean,
     keys: List<String> = entries.map { it.first },
     onToggle: (String) -> Unit,
+    onDelete: (String) -> Unit,
 ) {
     if (entries.isEmpty()) {
         Text("No files.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         return
     }
     entries.forEachIndexed { index, (name, size, directory) ->
-        val key = keys[index]
+        FileRow(
+            name = name,
+            size = size,
+            directory = directory,
+            key = keys[index],
+            selected = keys[index] in selected,
+            enabled = enabled,
+            onToggle = onToggle,
+            onDelete = onDelete,
+        )
+    }
+}
+
+@Composable
+private fun FileRow(
+    name: String,
+    size: Long,
+    directory: Boolean,
+    key: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onToggle: (String) -> Unit,
+    onDelete: (String) -> Unit,
+) {
+    var confirmDelete by remember(key) { mutableStateOf(false) }
+
+    Row(modifier = Modifier.fillMaxWidth()) {
         TextButton(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.weight(1f),
             onClick = { if (!directory) onToggle(key) },
             enabled = enabled && !directory,
         ) {
             Text(
                 buildString {
-                    append(if (key in selected) "[x] " else "[ ] ")
+                    append(if (selected) "[x] " else "[ ] ")
                     if (directory) append("DIR · ")
                     append(name)
                     if (!directory) append(" · ${formatBytes(size)}")
@@ -255,6 +300,31 @@ private fun FileList(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+        if (!directory) {
+            TextButton(
+                onClick = { confirmDelete = true },
+                enabled = enabled,
+            ) {
+                Text("Delete", color = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete file?") },
+            text = { Text("Delete $name from this transfer directory?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDelete = false
+                        onDelete(key)
+                    },
+                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        )
     }
 }
 
