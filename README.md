@@ -46,6 +46,12 @@ The Gradle wrapper is checked into the repository, so no global Gradle installat
 ./gradlew testDebugUnitTest assembleDebug
 ```
 
+For the clean unsigned release path used for F-Droid readiness checks:
+
+```bash
+./gradlew clean testDebugUnitTest assembleRelease
+```
+
 The debug APK is written to:
 
 ```text
@@ -57,6 +63,10 @@ Install it with:
 ```bash
 adb install -r --user 0 app/build/outputs/apk/debug/app-debug.apk
 ```
+
+## F-Droid
+
+PocketDev is prepared for submission to the official F-Droid repository. Store metadata is kept under `fastlane/metadata/android/`, and `fdroid/de.fgna.pocketdev.yml` contains the packaging template for the external `fdroiddata` merge request. See `docs/fdroid.md` for the readiness checklist and submission workflow.
 
 ## Architecture
 
@@ -89,6 +99,7 @@ PocketDev assumes the SSH server is infrastructure you already control. It is no
 - `AGENTS.md` — product/architecture guidance for repository work.
 - `docs/README.md` — documentation index and historical sprint status.
 - `docs/apk-signing.md` — APK signing notes.
+- `docs/fdroid.md` — F-Droid readiness and submission workflow.
 - `docs/git-key-agent.md` — persistent Git SSH-agent behavior.
 - `docs/user-testing-apk-installer.md` — APK installer test notes.
 
