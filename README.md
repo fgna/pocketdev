@@ -16,7 +16,7 @@ The project deliberately stays a control surface rather than becoming a miniatur
 
 ## Current state
 
-PocketDev 1.x is functionally complete for its intended core workflow and is maintained through issues found during normal use. Historical sprint plans are kept under `docs/` for context; they are not the current roadmap.
+PocketDev 1.x is functionally complete for its intended core workflow and is maintained through issues found during normal use. Future work is tracked through GitHub issues.
 
 ## Main capabilities
 
@@ -102,7 +102,7 @@ PocketDev assumes the SSH server is infrastructure you already control. It is no
 
 - `AGENTS.md` — product/architecture guidance for repository work.
 - `RELEASING.md` — public versioning and release process.
-- `docs/README.md` — documentation index and historical sprint status.
+- `docs/README.md` — documentation index.
 - `docs/apk-signing.md` — APK signing notes.
 - `docs/fdroid.md` — F-Droid readiness and submission workflow.
 - `docs/git-key-agent.md` — persistent Git SSH-agent behavior.
