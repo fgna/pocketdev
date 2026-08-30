@@ -8,7 +8,7 @@ The app connects directly over SSH, manages saved remote projects, runs commands
 
 ## Current product state
 
-PocketDev 1.x has completed its original end-to-end milestone. Development is now maintenance- and friction-driven rather than sprint/MVP-driven. Historical sprint documents under `docs/` are retained for context only.
+PocketDev 1.x has completed its original end-to-end milestone. Development is now maintenance- and friction-driven, with concrete work tracked through GitHub issues.
 
 Current accepted capabilities include:
 
