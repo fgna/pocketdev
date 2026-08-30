@@ -110,4 +110,4 @@ PocketDev assumes the SSH server is infrastructure you already control. It is no
 
 ## License
 
-PocketDev is available under the Apache License 2.0. See `LICENSE`.
+PocketDev is licensed under **GPL-3.0-or-later**. See `LICENSE`.
