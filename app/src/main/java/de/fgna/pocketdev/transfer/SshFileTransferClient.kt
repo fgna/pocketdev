@@ -103,10 +103,7 @@ class SshFileTransferClient {
             val path = resolveDirectory(ssh, configuredPath)
             val name = safeName(rawName)
             ssh.newSFTPClient().use { sftp ->
-                val target = "$path/$name"
-                val attributes = sftp.stat(target)
-                require(!attributes.type.isDirectory) { "Directories cannot be deleted here." }
-                sftp.rm(target)
+                sftp.rm("$path/$name")
             }
             path
         }
