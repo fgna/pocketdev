@@ -6,7 +6,6 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,8 +16,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -77,7 +74,13 @@ fun FileTransferScreen(
         }
     }
 
-    LaunchedEffect(Unit) { vm.refresh() }
+    LaunchedEffect(Unit) {
+        vm.refreshPhoneFiles()
+        vm.refresh()
+    }
+    LaunchedEffect(state.phoneTreeUri) {
+        if (state.phoneTreeUri != null) vm.refreshPhoneFiles()
+    }
 
     Scaffold(
         topBar = {
@@ -92,7 +95,13 @@ fun FileTransferScreen(
                             Text("Files", style = MaterialTheme.typography.titleLarge)
                             Text("Project-independent transfer", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        TextButton(onClick = vm::refresh, enabled = !state.busy) { Text("Refresh") }
+                        TextButton(
+                            onClick = {
+                                vm.refreshPhoneFiles()
+                                vm.refresh()
+                            },
+                            enabled = !state.busy,
+                        ) { Text("Refresh") }
                     }
                     HorizontalDivider()
                 }
@@ -273,7 +282,6 @@ private fun FileRow(
     onToggle: (String) -> Unit,
     onDelete: (String) -> Unit,
 ) {
-    var menuExpanded by remember(key) { mutableStateOf(false) }
     var confirmDelete by remember(key) { mutableStateOf(false) }
 
     Row(modifier = Modifier.fillMaxWidth()) {
@@ -293,17 +301,11 @@ private fun FileRow(
             )
         }
         if (!directory) {
-            Box {
-                TextButton(onClick = { menuExpanded = true }, enabled = enabled) { Text("⋮") }
-                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Delete") },
-                        onClick = {
-                            menuExpanded = false
-                            confirmDelete = true
-                        },
-                    )
-                }
+            TextButton(
+                onClick = { confirmDelete = true },
+                enabled = enabled,
+            ) {
+                Text("Delete", color = MaterialTheme.colorScheme.error)
             }
         }
     }
