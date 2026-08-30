@@ -1,0 +1,1 @@
+First stable release with secure SSH project control, streaming command output, APK retrieval and installation, file transfer, project switching, and reviewable GitHub issue diagnostics.
