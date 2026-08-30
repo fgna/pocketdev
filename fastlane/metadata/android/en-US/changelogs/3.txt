@@ -1,0 +1,1 @@
+Patch release preparing PocketDev for F-Droid distribution, including GPL-3.0-or-later licensing, release metadata, and F-Droid build automation.
