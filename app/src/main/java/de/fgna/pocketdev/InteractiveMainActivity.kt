@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -108,12 +109,12 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
         } else {
             PocketDevApp(vm)
 
-            Button(
+            TextButton(
                 onClick = { showFiles = true },
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .navigationBarsPadding()
-                    .padding(start = 16.dp, bottom = 104.dp),
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(end = 166.dp, top = 9.dp),
             ) {
                 Text("Files")
             }
