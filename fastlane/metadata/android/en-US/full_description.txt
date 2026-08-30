@@ -1,0 +1,17 @@
+PocketDev is an Android control surface for an existing development workstation or server.
+
+It connects directly over SSH and focuses on common mobile development workflows without trying to turn the phone into a full IDE. You can switch between saved projects, run Git/test/build commands with streaming output, stop long-running commands, retrieve APK artifacts, move files between phone and server, and prepare a reviewable GitHub issue draft after a failed command.
+
+PocketDev does not require a custom server daemon. It is intended for development machines you already control and uses pinned SSH host keys. APK retrieval verifies the server-side SHA-256 digest before installation.
+
+Key features include:
+* multiple saved SSH projects
+* predefined Pull, Test and Build actions plus arbitrary commands
+* streaming stdout/stderr and interactive sudo handling
+* persistent remote ssh-agent support
+* SHA-256-verified APK retrieval and installation
+* two-way phone/server file transfer
+* foreground protection for long-running commands and transfers
+* reviewable diagnostic issue drafts
+
+PocketDev is free and open source software licensed under GPL-3.0-or-later.
