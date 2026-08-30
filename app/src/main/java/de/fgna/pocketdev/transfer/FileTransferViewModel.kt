@@ -3,6 +3,7 @@ package de.fgna.pocketdev.transfer
 import android.app.Application
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -130,17 +131,26 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
                 val root = phoneRoot() ?: error("The saved phone transfer folder is no longer accessible. Choose it again.")
                 val target = root.listFiles().firstOrNull { it.uri.toString() == file.uri && !it.isDirectory }
                     ?: error("${file.name} is no longer in the phone transfer directory.")
-                require(target.delete()) { "Could not delete ${file.name}." }
+                val targetUri = target.uri
+                val app = getApplication<Application>()
+                val deleted = runCatching {
+                    DocumentsContract.deleteDocument(app.contentResolver, targetUri)
+                }.getOrElse {
+                    target.delete()
+                }
+                require(deleted) { "Could not delete ${file.name}. The selected folder may not allow deletion." }
             }.onSuccess {
+                val remaining = runCatching { readPhoneFiles() }.getOrElse { emptyList() }
+                require(remaining.none { it.uri == file.uri }) { "Android reported success, but ${file.name} is still present." }
                 _state.update {
                     it.copy(
                         busy = false,
                         progress = null,
+                        phoneFiles = remaining,
                         selectedPhoneFiles = it.selectedPhoneFiles - file.uri,
                         message = "Deleted ${file.name}.",
                     )
                 }
-                refresh()
             }.onFailure(::finishWithError)
         }
     }
