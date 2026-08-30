@@ -93,6 +93,25 @@ class SshFileTransferClient {
         }
     }
 
+    suspend fun deleteFile(
+        profile: SshProfile,
+        secret: String,
+        configuredPath: String,
+        rawName: String,
+    ): String = withContext(Dispatchers.IO) {
+        withClient(profile, secret) { ssh ->
+            val path = resolveDirectory(ssh, configuredPath)
+            val name = safeName(rawName)
+            ssh.newSFTPClient().use { sftp ->
+                val target = "$path/$name"
+                val attributes = sftp.stat(target)
+                require(!attributes.type.isDirectory) { "Directories cannot be deleted here." }
+                sftp.rm(target)
+            }
+            path
+        }
+    }
+
     private fun resolveDirectory(ssh: SSHClient, configuredPath: String): String {
         val requested = configuredPath.trim().ifBlank { DEFAULT_SERVER_PATH }
         val quoted = ProjectCommandBuilder.shellQuote(requested)
