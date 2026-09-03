@@ -45,6 +45,8 @@ fun FileTransferScreen(
 ) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
+    var confirmDeleteServerSelection by remember { mutableStateOf(false) }
+    var confirmDeletePhoneSelection by remember { mutableStateOf(false) }
     val selectedPhoneFolder = state.phoneTreeUri?.let { value ->
         runCatching {
             val uri = Uri.parse(value)
@@ -142,6 +144,14 @@ fun FileTransferScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (state.selectedServerFiles.isNotEmpty()) {
+                        TextButton(
+                            onClick = { confirmDeleteServerSelection = true },
+                            enabled = !state.busy,
+                        ) {
+                            Text("Delete selected", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
                 }
                 FileList(
                     entries = state.serverFiles.map { Triple(it.name, it.sizeBytes, it.directory) },
@@ -216,6 +226,14 @@ fun FileTransferScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (state.selectedPhoneFiles.isNotEmpty()) {
+                        TextButton(
+                            onClick = { confirmDeletePhoneSelection = true },
+                            enabled = !state.busy,
+                        ) {
+                            Text("Delete selected", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
                 }
                 FileList(
                     entries = state.phoneFiles.map { Triple(it.name, it.sizeBytes, it.directory) },
@@ -227,6 +245,42 @@ fun FileTransferScreen(
                 )
             }
         }
+    }
+
+    if (confirmDeleteServerSelection) {
+        val count = state.selectedServerFiles.size
+        AlertDialog(
+            onDismissRequest = { confirmDeleteServerSelection = false },
+            title = { Text("Delete selected files?") },
+            text = { Text("Delete $count selected file${if (count == 1) "" else "s"} from the server transfer directory?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDeleteServerSelection = false
+                        vm.deleteSelectedServerFiles()
+                    },
+                ) { Text("Delete $count", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDeleteServerSelection = false }) { Text("Cancel") } },
+        )
+    }
+
+    if (confirmDeletePhoneSelection) {
+        val count = state.selectedPhoneFiles.size
+        AlertDialog(
+            onDismissRequest = { confirmDeletePhoneSelection = false },
+            title = { Text("Delete selected files?") },
+            text = { Text("Delete $count selected file${if (count == 1) "" else "s"} from the phone transfer directory?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDeletePhoneSelection = false
+                        vm.deleteSelectedPhoneFiles()
+                    },
+                ) { Text("Delete $count", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDeletePhoneSelection = false }) { Text("Cancel") } },
+        )
     }
 }
 
