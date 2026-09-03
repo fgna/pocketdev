@@ -122,6 +122,41 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    fun deleteSelectedServerFiles() {
+        val selected = _state.value.serverFiles.filter { !it.directory && it.name in _state.value.selectedServerFiles }
+        if (selected.isEmpty() || _state.value.busy) return
+        _state.update {
+            it.copy(
+                busy = true,
+                progress = "Deleting 1/${selected.size} · ${selected.first().name}",
+                error = null,
+                message = null,
+            )
+        }
+        viewModelScope.launch {
+            runCatching {
+                val (profile, secret) = profileAndSecret()
+                var resolvedPath: String? = _state.value.resolvedServerPath
+                selected.forEachIndexed { index, file ->
+                    _state.update { it.copy(progress = "Deleting ${index + 1}/${selected.size} · ${file.name}") }
+                    resolvedPath = client.deleteFile(profile, secret, _state.value.serverPath, file.name)
+                }
+                resolvedPath
+            }.onSuccess { resolvedPath ->
+                _state.update {
+                    it.copy(
+                        busy = false,
+                        progress = null,
+                        resolvedServerPath = resolvedPath,
+                        selectedServerFiles = emptySet(),
+                        message = "Deleted ${selected.size} selected file${if (selected.size == 1) "" else "s"}.",
+                    )
+                }
+                refresh()
+            }.onFailure(::finishWithError)
+        }
+    }
+
     fun deletePhoneFile(uri: String) {
         val file = _state.value.phoneFiles.firstOrNull { it.uri == uri && !it.directory } ?: return
         if (_state.value.busy) return
@@ -149,6 +184,53 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
                         phoneFiles = remaining,
                         selectedPhoneFiles = it.selectedPhoneFiles - file.uri,
                         message = "Deleted ${file.name}.",
+                    )
+                }
+            }.onFailure(::finishWithError)
+        }
+    }
+
+    fun deleteSelectedPhoneFiles() {
+        val selected = _state.value.phoneFiles.filter { !it.directory && it.uri in _state.value.selectedPhoneFiles }
+        if (selected.isEmpty() || _state.value.busy) return
+        _state.update {
+            it.copy(
+                busy = true,
+                progress = "Deleting 1/${selected.size} · ${selected.first().name}",
+                error = null,
+                message = null,
+            )
+        }
+        viewModelScope.launch {
+            runCatching {
+                val root = phoneRoot() ?: error("The saved phone transfer folder is no longer accessible. Choose it again.")
+                val app = getApplication<Application>()
+                selected.forEachIndexed { index, file ->
+                    _state.update { it.copy(progress = "Deleting ${index + 1}/${selected.size} · ${file.name}") }
+                    val target = root.listFiles().firstOrNull { it.uri.toString() == file.uri && !it.isDirectory }
+                        ?: error("${file.name} is no longer in the phone transfer directory.")
+                    val deleted = runCatching {
+                        DocumentsContract.deleteDocument(app.contentResolver, target.uri)
+                    }.getOrElse {
+                        target.delete()
+                    }
+                    require(deleted) { "Could not delete ${file.name}. The selected folder may not allow deletion." }
+                }
+                val remaining = readPhoneFiles()
+                val remainingUris = remaining.map { it.uri }.toSet()
+                val notDeleted = selected.filter { it.uri in remainingUris }
+                require(notDeleted.isEmpty()) {
+                    "Android reported success, but ${notDeleted.first().name} is still present."
+                }
+                remaining
+            }.onSuccess { remaining ->
+                _state.update {
+                    it.copy(
+                        busy = false,
+                        progress = null,
+                        phoneFiles = remaining,
+                        selectedPhoneFiles = emptySet(),
+                        message = "Deleted ${selected.size} selected file${if (selected.size == 1) "" else "s"}.",
                     )
                 }
             }.onFailure(::finishWithError)
