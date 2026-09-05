@@ -45,6 +45,9 @@ fun FileTransferScreen(
 ) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
+    var confirmDeleteSelected by remember { mutableStateOf<DeleteSelectionTarget?>(null) }
+    var serverDeleteQueue by remember { mutableStateOf<List<String>>(emptyList()) }
+    var phoneDeleteQueue by remember { mutableStateOf<List<String>>(emptyList()) }
     val selectedPhoneFolder = state.phoneTreeUri?.let { value ->
         runCatching {
             val uri = Uri.parse(value)
@@ -80,6 +83,28 @@ fun FileTransferScreen(
     }
     LaunchedEffect(state.phoneTreeUri) {
         if (state.phoneTreeUri != null) vm.refreshPhoneFiles()
+    }
+    LaunchedEffect(state.busy, state.error, serverDeleteQueue) {
+        if (!state.busy && serverDeleteQueue.isNotEmpty()) {
+            if (state.error != null) {
+                serverDeleteQueue = emptyList()
+            } else {
+                val next = serverDeleteQueue.first()
+                serverDeleteQueue = serverDeleteQueue.drop(1)
+                vm.deleteServerFile(next)
+            }
+        }
+    }
+    LaunchedEffect(state.busy, state.error, phoneDeleteQueue) {
+        if (!state.busy && phoneDeleteQueue.isNotEmpty()) {
+            if (state.error != null) {
+                phoneDeleteQueue = emptyList()
+            } else {
+                val next = phoneDeleteQueue.first()
+                phoneDeleteQueue = phoneDeleteQueue.drop(1)
+                vm.deletePhoneFile(next)
+            }
+        }
     }
 
     Scaffold(
@@ -142,6 +167,15 @@ fun FileTransferScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+                if (state.selectedServerFiles.isNotEmpty()) {
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { confirmDeleteSelected = DeleteSelectionTarget.SERVER },
+                        enabled = !state.busy && serverDeleteQueue.isEmpty(),
+                    ) {
+                        Text("Delete selected (${state.selectedServerFiles.size})", color = MaterialTheme.colorScheme.error)
+                    }
                 }
                 FileList(
                     entries = state.serverFiles.map { Triple(it.name, it.sizeBytes, it.directory) },
@@ -217,6 +251,15 @@ fun FileTransferScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                if (state.selectedPhoneFiles.isNotEmpty()) {
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { confirmDeleteSelected = DeleteSelectionTarget.PHONE },
+                        enabled = !state.busy && phoneDeleteQueue.isEmpty(),
+                    ) {
+                        Text("Delete selected (${state.selectedPhoneFiles.size})", color = MaterialTheme.colorScheme.error)
+                    }
+                }
                 FileList(
                     entries = state.phoneFiles.map { Triple(it.name, it.sizeBytes, it.directory) },
                     selected = state.selectedPhoneFiles,
@@ -228,6 +271,47 @@ fun FileTransferScreen(
             }
         }
     }
+
+    confirmDeleteSelected?.let { target ->
+        val selected = when (target) {
+            DeleteSelectionTarget.SERVER -> state.selectedServerFiles.toList()
+            DeleteSelectionTarget.PHONE -> state.selectedPhoneFiles.toList()
+        }
+        val location = if (target == DeleteSelectionTarget.SERVER) "server" else "phone"
+        AlertDialog(
+            onDismissRequest = { confirmDeleteSelected = null },
+            title = { Text("Delete selected files?") },
+            text = {
+                Text(
+                    "Delete ${selected.size} selected ${if (selected.size == 1) "file" else "files"} from the $location transfer directory?",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDeleteSelected = null
+                        when (target) {
+                            DeleteSelectionTarget.SERVER -> {
+                                serverDeleteQueue = selected.drop(1)
+                                selected.firstOrNull()?.let(vm::deleteServerFile)
+                            }
+                            DeleteSelectionTarget.PHONE -> {
+                                phoneDeleteQueue = selected.drop(1)
+                                selected.firstOrNull()?.let(vm::deletePhoneFile)
+                            }
+                        }
+                    },
+                    enabled = selected.isNotEmpty() && !state.busy,
+                ) { Text("Delete ${selected.size}", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDeleteSelected = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+private enum class DeleteSelectionTarget {
+    SERVER,
+    PHONE,
 }
 
 @Composable
