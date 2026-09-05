@@ -99,6 +99,7 @@ class SshArtifactRetriever : ArtifactRetriever {
                 "APK integrity check failed: server and downloaded SHA-256 differ."
             }
             File(localFile.absolutePath + VERIFIED_SUFFIX).writeText(localSha256)
+            ArtifactDownloadHistory.recordSuccessfulDownload(destinationDir, localFile, localSha256)
 
             return DownloadedArtifact(
                 remotePath = remotePath,
@@ -115,7 +116,7 @@ class SshArtifactRetriever : ArtifactRetriever {
     private fun cleanupDestination(destinationDir: File) {
         destinationDir.mkdirs()
         destinationDir.listFiles()?.forEach { old ->
-            if (old.isFile) old.delete()
+            if (old.isFile && !ArtifactDownloadHistory.shouldPreserveDuringCleanup(old)) old.delete()
         }
     }
 

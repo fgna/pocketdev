@@ -7,5 +7,5 @@ data class ArtifactDownloadState(
     val sizeBytes: Long? = null,
     val sha256: String? = null,
     val verified: Boolean = false,
-    val error: String? = null,
+    val error: String? = ArtifactDownloadHistory.warningFor(localPath),
 )
