@@ -15,13 +15,13 @@ Android `versionCode` is a monotonically increasing integer. Every published bui
 Example:
 
 ```kotlin
-versionCode = 3
-versionName = "1.0.1"
+versionCode = 4
+versionName = "1.1.0"
 ```
 
 ## Release source of truth
 
-A release is identified by the exact commit tagged `v<versionName>`, for example `v1.0.1`.
+A release is identified by the exact commit tagged `v<versionName>`, for example `v1.1.0`.
 
 The following must agree for every release:
 
@@ -51,8 +51,8 @@ Published tags are immutable. Never move or replace an existing release tag. Fix
 ```bash
 git checkout main
 git pull --ff-only
-git tag -a v1.0.1 -m "PocketDev 1.0.1"
-git push origin v1.0.1
+git tag -a v1.1.0 -m "PocketDev 1.1.0"
+git push origin v1.1.0
 ```
 
 7. Create the GitHub Release from the same tag and use the changelog as the release notes basis.
@@ -64,4 +64,4 @@ PocketDev does not use a fixed calendar release cycle. Create a release when a c
 
 ## Current baseline
 
-`v1.0.0` is the first stable release. Later changes on `main` must not reuse `v1.0.0`; the next public release must receive a new version name and a version code greater than the current one.
+The current release baseline is defined by the highest published immutable SemVer tag together with the matching `versionName` and monotonically increasing `versionCode`. Never reuse or move an existing release tag; every new public build gets a new version and version code.

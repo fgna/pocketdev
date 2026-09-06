@@ -1,0 +1,1 @@
+Adds bulk deletion for selected transfer files and warns when a newly downloaded APK is unchanged from the previous successful download.
