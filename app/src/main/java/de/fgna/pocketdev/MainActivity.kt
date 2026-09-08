@@ -52,6 +52,7 @@ import de.fgna.pocketdev.artifact.SshArtifactRetriever
 import de.fgna.pocketdev.diagnostics.DiagnosticDraftBuilder
 import de.fgna.pocketdev.diagnostics.DiagnosticIssueDraft
 import de.fgna.pocketdev.project.ProjectAction
+import de.fgna.pocketdev.project.ProjectCommandBuilder
 import de.fgna.pocketdev.project.ProjectConfig
 import de.fgna.pocketdev.ssh.AuthMode
 import de.fgna.pocketdev.ui.PocketDevCompactMeta
@@ -358,11 +359,19 @@ private fun PocketDevHome(
                     Row(modifier = Modifier.fillMaxWidth()) {
                         PocketDevSectionLabel("Command", modifier = Modifier.weight(1f))
                         TextButton(onClick = { onCommandChange("pwd") }, enabled = !busy) { Text("pwd") }
+                        TextButton(
+                            onClick = {
+                                val remotePath = project?.remotePath ?: return@TextButton
+                                onCommandChange("cd ${ProjectCommandBuilder.shellQuote(remotePath)}")
+                                onRun()
+                            },
+                            enabled = project != null && profile != null && state.hasStoredSecret && !busy,
+                        ) { Text("cd Project home") }
                         TextButton(onClick = { onCommandChange("") }, enabled = !busy && execution.command.isNotEmpty()) { Text("Clear") }
                     }
-                    project?.remotePath?.let { remotePath ->
+                    state.currentWorkingDirectory?.let { workingDirectory ->
                         Text(
-                            "cwd · $remotePath",
+                            "cwd · $workingDirectory",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
