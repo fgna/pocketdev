@@ -8,11 +8,13 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import de.fgna.pocketdev.data.SshProfileRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 data class PhoneTransferFile(
@@ -134,15 +136,25 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
             )
         }
         viewModelScope.launch {
-            runCatching {
-                val (profile, secret) = profileAndSecret()
-                var resolvedPath: String? = _state.value.resolvedServerPath
-                selected.forEachIndexed { index, file ->
-                    _state.update { it.copy(progress = "Deleting ${index + 1}/${selected.size} · ${file.name}") }
-                    resolvedPath = client.deleteFile(profile, secret, _state.value.serverPath, file.name)
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val (profile, secret) = profileAndSecret()
+                    var resolvedPath: String? = _state.value.resolvedServerPath
+                    selected.forEachIndexed { index, file ->
+                        _state.update {
+                            it.copy(progress = "Deleting ${index + 1}/${selected.size} · ${file.name}")
+                        }
+                        resolvedPath = client.deleteFile(
+                            profile,
+                            secret,
+                            _state.value.serverPath,
+                            file.name,
+                        )
+                    }
+                    resolvedPath
                 }
-                resolvedPath
-            }.onSuccess { resolvedPath ->
+            }
+            result.onSuccess { resolvedPath ->
                 _state.update {
                     it.copy(
                         busy = false,
@@ -153,7 +165,27 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
                     )
                 }
                 refresh()
-            }.onFailure(::finishWithError)
+            }.onFailure { error ->
+                val listing = runCatching {
+                    withContext(Dispatchers.IO) {
+                        val (profile, secret) = profileAndSecret()
+                        client.list(profile, secret, _state.value.serverPath)
+                    }
+                }.getOrNull()
+                _state.update { state ->
+                    val files = listing?.files ?: state.serverFiles
+                    state.copy(
+                        busy = false,
+                        progress = null,
+                        resolvedServerPath = listing?.absolutePath ?: state.resolvedServerPath,
+                        serverFiles = files,
+                        selectedServerFiles = state.selectedServerFiles.intersect(
+                            files.filterNot { it.directory }.map { it.name }.toSet(),
+                        ),
+                        error = error.message ?: error::class.java.simpleName,
+                    )
+                }
+            }
         }
     }
 
@@ -202,28 +234,39 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
             )
         }
         viewModelScope.launch {
-            runCatching {
-                val root = phoneRoot() ?: error("The saved phone transfer folder is no longer accessible. Choose it again.")
-                val app = getApplication<Application>()
-                selected.forEachIndexed { index, file ->
-                    _state.update { it.copy(progress = "Deleting ${index + 1}/${selected.size} · ${file.name}") }
-                    val target = root.listFiles().firstOrNull { it.uri.toString() == file.uri && !it.isDirectory }
-                        ?: error("${file.name} is no longer in the phone transfer directory.")
-                    val deleted = runCatching {
-                        DocumentsContract.deleteDocument(app.contentResolver, target.uri)
-                    }.getOrElse {
-                        target.delete()
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val root = phoneRoot()
+                        ?: error("The saved phone transfer folder is no longer accessible. Choose it again.")
+                    val app = getApplication<Application>()
+                    val targets = root.listFiles()
+                        .filterNot { it.isDirectory }
+                        .associateBy { it.uri.toString() }
+                    selected.forEachIndexed { index, file ->
+                        _state.update {
+                            it.copy(progress = "Deleting ${index + 1}/${selected.size} · ${file.name}")
+                        }
+                        val target = targets[file.uri]
+                            ?: error("${file.name} is no longer in the phone transfer directory.")
+                        val deleted = runCatching {
+                            DocumentsContract.deleteDocument(app.contentResolver, target.uri)
+                        }.getOrElse {
+                            target.delete()
+                        }
+                        require(deleted) {
+                            "Could not delete ${file.name}. The selected folder may not allow deletion."
+                        }
                     }
-                    require(deleted) { "Could not delete ${file.name}. The selected folder may not allow deletion." }
+                    val remaining = readPhoneFiles()
+                    val remainingUris = remaining.map { it.uri }.toSet()
+                    val notDeleted = selected.filter { it.uri in remainingUris }
+                    require(notDeleted.isEmpty()) {
+                        "Android reported success, but ${notDeleted.first().name} is still present."
+                    }
+                    remaining
                 }
-                val remaining = readPhoneFiles()
-                val remainingUris = remaining.map { it.uri }.toSet()
-                val notDeleted = selected.filter { it.uri in remainingUris }
-                require(notDeleted.isEmpty()) {
-                    "Android reported success, but ${notDeleted.first().name} is still present."
-                }
-                remaining
-            }.onSuccess { remaining ->
+            }
+            result.onSuccess { remaining ->
                 _state.update {
                     it.copy(
                         busy = false,
@@ -233,7 +276,23 @@ class FileTransferViewModel(application: Application) : AndroidViewModel(applica
                         message = "Deleted ${selected.size} selected file${if (selected.size == 1) "" else "s"}.",
                     )
                 }
-            }.onFailure(::finishWithError)
+            }.onFailure { error ->
+                val remaining = runCatching {
+                    withContext(Dispatchers.IO) { readPhoneFiles() }
+                }.getOrNull()
+                _state.update { state ->
+                    val files = remaining ?: state.phoneFiles
+                    state.copy(
+                        busy = false,
+                        progress = null,
+                        phoneFiles = files,
+                        selectedPhoneFiles = state.selectedPhoneFiles.intersect(
+                            files.filterNot { it.directory }.map { it.uri }.toSet(),
+                        ),
+                        error = error.message ?: error::class.java.simpleName,
+                    )
+                }
+            }
         }
     }
 
