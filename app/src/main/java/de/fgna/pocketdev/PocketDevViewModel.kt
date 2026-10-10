@@ -669,10 +669,10 @@ class PocketDevViewModel(
     private fun codexLoggedCommand(command: String): String {
         val script = listOf(
             "umask 077",
-            "dir=\"\$HOME/.local/state/pocketdev/jobs\""
+            "dir=\"\$HOME/.local/state/pocketdev/jobs\"",
             "mkdir -p \"\$dir\" || exit 1",
-            "prefix=\"\$dir/\$(date +%Y%m%dT%H%M%S)-\$\$\""
-            "printf 'POCKETDEV_JOB_LOG:%s\\n' \"\$prefix\""
+            "prefix=\"\$dir/\$(date +%Y%m%dT%H%M%S)-\$\$\"",
+            "printf 'POCKETDEV_JOB_LOG:%s\\n' \"\$prefix\"",
             "exec > >(tee \"\$prefix.stdout\") 2> >(tee \"\$prefix.stderr\" >&2)",
             command,
         ).joinToString("\n")
