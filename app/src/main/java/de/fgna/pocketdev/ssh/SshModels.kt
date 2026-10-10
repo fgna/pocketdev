@@ -70,7 +70,7 @@ object CommandStateReducer {
     }
     private const val MAX_VISIBLE_OUTPUT = 128 * 1024
     private const val MAX_PENDING_LINE = 64 * 1024
-    private fun appendOutput(current: CommandUiState, event: CommandEvent): CommandUiState {
+    private fun appendOutput(current: CommandUiState, event: CommandEvent.Output): CommandUiState {
         val now = System.currentTimeMillis()
         val prefix = "POCKETDEV_JOB_LOG:"
         val text = event.text
