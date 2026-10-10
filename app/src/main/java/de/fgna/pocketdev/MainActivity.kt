@@ -36,6 +36,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -62,6 +63,7 @@ import de.fgna.pocketdev.ui.PocketDevIndicatorState
 import de.fgna.pocketdev.ui.PocketDevSectionLabel
 import de.fgna.pocketdev.ui.PocketDevTheme
 import java.io.File
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -415,6 +417,29 @@ private fun PocketDevHome(
                         }
                         if (execution.exitCode != null && execution.exitCode != 0) TextButton(onClick = onIssueDraft) { Text("Git Issue") }
                         TextButton(onClick = { onCopy(execution.combinedOutput) }, enabled = execution.combinedOutput.isNotBlank()) { Text("Copy") }
+                    }
+                    if (execution.codexAction != null) {
+                        var now by remember(execution.startedAtMs) { mutableStateOf(System.currentTimeMillis()) }
+                        LaunchedEffect(execution.running, execution.startedAtMs) {
+                            while (execution.running) {
+                                now = System.currentTimeMillis()
+                                delay(1000)
+                            }
+                        }
+                        val elapsed = execution.startedAtMs?.let { (now - it).coerceAtLeast(0) / 1000 } ?: 0
+                        val idle = execution.lastActivityAtMs?.let { (now - it).coerceAtLeast(0) / 1000 }
+                        Text("Codex · ${execution.codexAction} · elapsed ${elapsed}s", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            if (idle == null) "No output received yet" else "Last output ${idle}s ago" +
+                                if (execution.running && idle > 60) " · quiet, stall unconfirmed" else "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (execution.codexNeedsInput) Text("Codex requested input or approval. Review on the server.", color = MaterialTheme.colorScheme.error)
+                        execution.remoteLogPrefix?.let { prefix ->
+                            Text("Server logs: ${prefix}.stdout / .stderr", style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { onCopy("${prefix}.stdout\n${prefix}.stderr") }) { Text("Copy log paths") }
+                        }
                     }
                     Text(execution.combinedOutput.ifBlank { "No output yet." }, style = MaterialTheme.typography.bodySmall)
                 }
