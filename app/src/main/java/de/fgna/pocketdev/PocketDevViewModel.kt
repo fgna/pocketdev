@@ -665,14 +665,23 @@ class PocketDevViewModel(
     }
 
 
-    /** Keep unmodified per-stream logs on the trusted SSH host, with private file permissions. */
+    /** Keep private, unmodified stdout and stderr logs on the SSH host. */
     private fun codexLoggedCommand(command: String): String {
-        val script = """
-            umask 077
-            dir="${'
-        _state.update(transform)
+        val script = listOf(
+            "umask 077",
+            "dir=\"\$HOME/.local/state/pocketdev/jobs\""
+            "mkdir -p \"\$dir\" || exit 1",
+            "prefix=\"\$dir/\$(date +%Y%m%dT%H%M%S)-\$\$\""
+            "printf 'POCKETDEV_JOB_LOG:%s\\n' \"\$prefix\""
+            "exec > >(tee \"\$prefix.stdout\") 2> >(tee \"\$prefix.stderr\" >&2)",
+            command,
+        ).joinToString("\n")
+        return "bash -c " + ProjectCommandBuilder.shellQuote(script)
     }
 
+    private fun updateState(transform: (PocketDevState) -> PocketDevState) {
+        _state.update(transform)
+    }
     private fun updateSession(projectId: String, transform: (ProjectSessionState) -> ProjectSessionState) {
         _state.update { state ->
             val current = state.sessions[projectId] ?: ProjectSessionState()
