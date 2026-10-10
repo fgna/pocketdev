@@ -623,11 +623,14 @@ class PocketDevViewModel(
             it.copy(command = it.command.copy(running = true, stdout = "", stderr = "", exitCode = null, connectionError = null))
         }
 
+        val executedCommand = if (de.fgna.pocketdev.ssh.CodexProgress.enabled(commandText)) {
+            codexLoggedCommand(projectCommand)
+        } else projectCommand
         viewModelScope.launch {
             executor.execute(
                 profile = profile,
                 secret = secret,
-                command = GitSshAgent.wrap(projectCommand),
+                command = GitSshAgent.wrap(executedCommand),
                 commandId = projectId,
             ).collect { event ->
                 if (event is CommandEvent.HostKeyTrustRequired) {
@@ -659,6 +662,1020 @@ class PocketDevViewModel(
             refreshGitKeyStatus()
             refreshGitBranch(projectId)
         }
+    }
+
+
+    /** Keep unmodified per-stream logs on the trusted SSH host, with private file permissions. */
+    private fun codexLoggedCommand(command: String): String {
+        val script = """
+            umask 077
+            dir="${'
+        _state.update(transform)
+    }
+
+    private fun updateSession(projectId: String, transform: (ProjectSessionState) -> ProjectSessionState) {
+        _state.update { state ->
+            val current = state.sessions[projectId] ?: ProjectSessionState()
+            val updated = transform(current)
+            val sessions = state.sessions + (projectId to updated)
+            val displayedProject = if (state.project?.id == projectId) {
+                displayProject(state.projects.firstOrNull { it.id == projectId } ?: state.project, sessions)
+            } else {
+                state.project
+            }
+            state.copy(sessions = sessions, project = displayedProject)
+        }
+        _state.value.sessions[projectId]?.let { persistSession(projectId, it) }
+    }
+
+    private fun ensureSessions(
+        projects: List<ProjectConfig>,
+        current: Map<String, ProjectSessionState>,
+    ): Map<String, ProjectSessionState> = projects.associate { project ->
+        val existing = current[project.id] ?: restoreSession(project.id, project.remotePath)
+        project.id to if (existing.workingDirectory.isNullOrBlank()) {
+            existing.copy(workingDirectory = project.remotePath)
+        } else {
+            existing
+        }
+    }
+
+    private fun displayProject(
+        project: ProjectConfig?,
+        sessions: Map<String, ProjectSessionState>,
+    ): ProjectConfig? = project?.let { configured ->
+        val session = sessions[configured.id]
+        val cwd = session?.workingDirectory?.takeIf { it.startsWith("/") }
+        val branch = session?.gitBranch?.takeIf { it.isNotBlank() } ?: "—"
+        configured.copy(
+            name = "${configured.name} · branch · $branch",
+            remotePath = cwd ?: configured.remotePath,
+        )
+    }
+
+    private fun persistSession(projectId: String, session: ProjectSessionState) {
+        val prefix = "session.$projectId."
+        savedStateHandle[prefix + "command"] = session.command.command
+        savedStateHandle[prefix + "running"] = session.command.running
+        savedStateHandle[prefix + "stdout"] = session.command.stdout
+        savedStateHandle[prefix + "stderr"] = session.command.stderr
+        savedStateHandle[prefix + "exitCode"] = session.command.exitCode
+        savedStateHandle[prefix + "connectionError"] = session.command.connectionError
+        savedStateHandle[prefix + "artifactRemote"] = session.artifact.remotePath
+        savedStateHandle[prefix + "artifactLocal"] = session.artifact.localPath
+        savedStateHandle[prefix + "artifactError"] = session.artifact.error
+        savedStateHandle[prefix + "workingDirectory"] = session.workingDirectory
+        savedStateHandle[prefix + "gitBranch"] = session.gitBranch
+    }
+
+    private fun restoreSession(projectId: String, fallbackWorkingDirectory: String): ProjectSessionState {
+        val prefix = "session.$projectId."
+        val wasRunning = savedStateHandle.get<Boolean>(prefix + "running") == true
+        return ProjectSessionState(
+            command = CommandUiState(
+                command = savedStateHandle.get<String>(prefix + "command") ?: "pwd",
+                running = false,
+                stdout = savedStateHandle.get<String>(prefix + "stdout").orEmpty(),
+                stderr = savedStateHandle.get<String>(prefix + "stderr").orEmpty(),
+                exitCode = savedStateHandle.get<Int>(prefix + "exitCode"),
+                connectionError = if (wasRunning) {
+                    "Command was interrupted because PocketDev was stopped while in the background. Run it again to continue."
+                } else {
+                    savedStateHandle.get<String>(prefix + "connectionError")
+                },
+            ),
+            artifact = ArtifactDownloadState(
+                downloading = false,
+                remotePath = savedStateHandle.get<String>(prefix + "artifactRemote"),
+                localPath = savedStateHandle.get<String>(prefix + "artifactLocal"),
+                error = savedStateHandle.get<String>(prefix + "artifactError"),
+            ),
+            workingDirectory = savedStateHandle.get<String>(prefix + "workingDirectory")
+                ?.takeIf { it.startsWith("/") }
+                ?: fallbackWorkingDirectory,
+            gitBranch = savedStateHandle.get<String>(prefix + "gitBranch")?.takeIf { it.isNotBlank() },
+        )
+    }
+
+    private fun clearPersistedSession(projectId: String) {
+        val prefix = "session.$projectId."
+        listOf(
+            "command", "running", "stdout", "stderr", "exitCode", "connectionError",
+            "artifactRemote", "artifactLocal", "artifactError", "workingDirectory", "gitBranch",
+        ).forEach { key -> savedStateHandle.remove<Any>(prefix + key) }
+    }
+
+    private fun loadInitialState(): PocketDevState {
+        val stored = repository.load()
+        val projectCollection = projectRepository.load()
+        val sessions = projectCollection.projects.associate { project ->
+            project.id to restoreSession(project.id, project.remotePath)
+        }
+        return PocketDevState(
+            profile = stored?.profile,
+            hasStoredSecret = stored?.hasSecret == true,
+            projects = projectCollection.projects,
+            project = displayProject(projectCollection.activeProject, sessions),
+            sessions = sessions,
+        )
+    }
+}
+}HOME/.local/state/pocketdev/jobs"
+            mkdir -p "${'
+        _state.update(transform)
+    }
+
+    private fun updateSession(projectId: String, transform: (ProjectSessionState) -> ProjectSessionState) {
+        _state.update { state ->
+            val current = state.sessions[projectId] ?: ProjectSessionState()
+            val updated = transform(current)
+            val sessions = state.sessions + (projectId to updated)
+            val displayedProject = if (state.project?.id == projectId) {
+                displayProject(state.projects.firstOrNull { it.id == projectId } ?: state.project, sessions)
+            } else {
+                state.project
+            }
+            state.copy(sessions = sessions, project = displayedProject)
+        }
+        _state.value.sessions[projectId]?.let { persistSession(projectId, it) }
+    }
+
+    private fun ensureSessions(
+        projects: List<ProjectConfig>,
+        current: Map<String, ProjectSessionState>,
+    ): Map<String, ProjectSessionState> = projects.associate { project ->
+        val existing = current[project.id] ?: restoreSession(project.id, project.remotePath)
+        project.id to if (existing.workingDirectory.isNullOrBlank()) {
+            existing.copy(workingDirectory = project.remotePath)
+        } else {
+            existing
+        }
+    }
+
+    private fun displayProject(
+        project: ProjectConfig?,
+        sessions: Map<String, ProjectSessionState>,
+    ): ProjectConfig? = project?.let { configured ->
+        val session = sessions[configured.id]
+        val cwd = session?.workingDirectory?.takeIf { it.startsWith("/") }
+        val branch = session?.gitBranch?.takeIf { it.isNotBlank() } ?: "—"
+        configured.copy(
+            name = "${configured.name} · branch · $branch",
+            remotePath = cwd ?: configured.remotePath,
+        )
+    }
+
+    private fun persistSession(projectId: String, session: ProjectSessionState) {
+        val prefix = "session.$projectId."
+        savedStateHandle[prefix + "command"] = session.command.command
+        savedStateHandle[prefix + "running"] = session.command.running
+        savedStateHandle[prefix + "stdout"] = session.command.stdout
+        savedStateHandle[prefix + "stderr"] = session.command.stderr
+        savedStateHandle[prefix + "exitCode"] = session.command.exitCode
+        savedStateHandle[prefix + "connectionError"] = session.command.connectionError
+        savedStateHandle[prefix + "artifactRemote"] = session.artifact.remotePath
+        savedStateHandle[prefix + "artifactLocal"] = session.artifact.localPath
+        savedStateHandle[prefix + "artifactError"] = session.artifact.error
+        savedStateHandle[prefix + "workingDirectory"] = session.workingDirectory
+        savedStateHandle[prefix + "gitBranch"] = session.gitBranch
+    }
+
+    private fun restoreSession(projectId: String, fallbackWorkingDirectory: String): ProjectSessionState {
+        val prefix = "session.$projectId."
+        val wasRunning = savedStateHandle.get<Boolean>(prefix + "running") == true
+        return ProjectSessionState(
+            command = CommandUiState(
+                command = savedStateHandle.get<String>(prefix + "command") ?: "pwd",
+                running = false,
+                stdout = savedStateHandle.get<String>(prefix + "stdout").orEmpty(),
+                stderr = savedStateHandle.get<String>(prefix + "stderr").orEmpty(),
+                exitCode = savedStateHandle.get<Int>(prefix + "exitCode"),
+                connectionError = if (wasRunning) {
+                    "Command was interrupted because PocketDev was stopped while in the background. Run it again to continue."
+                } else {
+                    savedStateHandle.get<String>(prefix + "connectionError")
+                },
+            ),
+            artifact = ArtifactDownloadState(
+                downloading = false,
+                remotePath = savedStateHandle.get<String>(prefix + "artifactRemote"),
+                localPath = savedStateHandle.get<String>(prefix + "artifactLocal"),
+                error = savedStateHandle.get<String>(prefix + "artifactError"),
+            ),
+            workingDirectory = savedStateHandle.get<String>(prefix + "workingDirectory")
+                ?.takeIf { it.startsWith("/") }
+                ?: fallbackWorkingDirectory,
+            gitBranch = savedStateHandle.get<String>(prefix + "gitBranch")?.takeIf { it.isNotBlank() },
+        )
+    }
+
+    private fun clearPersistedSession(projectId: String) {
+        val prefix = "session.$projectId."
+        listOf(
+            "command", "running", "stdout", "stderr", "exitCode", "connectionError",
+            "artifactRemote", "artifactLocal", "artifactError", "workingDirectory", "gitBranch",
+        ).forEach { key -> savedStateHandle.remove<Any>(prefix + key) }
+    }
+
+    private fun loadInitialState(): PocketDevState {
+        val stored = repository.load()
+        val projectCollection = projectRepository.load()
+        val sessions = projectCollection.projects.associate { project ->
+            project.id to restoreSession(project.id, project.remotePath)
+        }
+        return PocketDevState(
+            profile = stored?.profile,
+            hasStoredSecret = stored?.hasSecret == true,
+            projects = projectCollection.projects,
+            project = displayProject(projectCollection.activeProject, sessions),
+            sessions = sessions,
+        )
+    }
+}
+}dir" || exit 1
+            prefix="${'
+        _state.update(transform)
+    }
+
+    private fun updateSession(projectId: String, transform: (ProjectSessionState) -> ProjectSessionState) {
+        _state.update { state ->
+            val current = state.sessions[projectId] ?: ProjectSessionState()
+            val updated = transform(current)
+            val sessions = state.sessions + (projectId to updated)
+            val displayedProject = if (state.project?.id == projectId) {
+                displayProject(state.projects.firstOrNull { it.id == projectId } ?: state.project, sessions)
+            } else {
+                state.project
+            }
+            state.copy(sessions = sessions, project = displayedProject)
+        }
+        _state.value.sessions[projectId]?.let { persistSession(projectId, it) }
+    }
+
+    private fun ensureSessions(
+        projects: List<ProjectConfig>,
+        current: Map<String, ProjectSessionState>,
+    ): Map<String, ProjectSessionState> = projects.associate { project ->
+        val existing = current[project.id] ?: restoreSession(project.id, project.remotePath)
+        project.id to if (existing.workingDirectory.isNullOrBlank()) {
+            existing.copy(workingDirectory = project.remotePath)
+        } else {
+            existing
+        }
+    }
+
+    private fun displayProject(
+        project: ProjectConfig?,
+        sessions: Map<String, ProjectSessionState>,
+    ): ProjectConfig? = project?.let { configured ->
+        val session = sessions[configured.id]
+        val cwd = session?.workingDirectory?.takeIf { it.startsWith("/") }
+        val branch = session?.gitBranch?.takeIf { it.isNotBlank() } ?: "—"
+        configured.copy(
+            name = "${configured.name} · branch · $branch",
+            remotePath = cwd ?: configured.remotePath,
+        )
+    }
+
+    private fun persistSession(projectId: String, session: ProjectSessionState) {
+        val prefix = "session.$projectId."
+        savedStateHandle[prefix + "command"] = session.command.command
+        savedStateHandle[prefix + "running"] = session.command.running
+        savedStateHandle[prefix + "stdout"] = session.command.stdout
+        savedStateHandle[prefix + "stderr"] = session.command.stderr
+        savedStateHandle[prefix + "exitCode"] = session.command.exitCode
+        savedStateHandle[prefix + "connectionError"] = session.command.connectionError
+        savedStateHandle[prefix + "artifactRemote"] = session.artifact.remotePath
+        savedStateHandle[prefix + "artifactLocal"] = session.artifact.localPath
+        savedStateHandle[prefix + "artifactError"] = session.artifact.error
+        savedStateHandle[prefix + "workingDirectory"] = session.workingDirectory
+        savedStateHandle[prefix + "gitBranch"] = session.gitBranch
+    }
+
+    private fun restoreSession(projectId: String, fallbackWorkingDirectory: String): ProjectSessionState {
+        val prefix = "session.$projectId."
+        val wasRunning = savedStateHandle.get<Boolean>(prefix + "running") == true
+        return ProjectSessionState(
+            command = CommandUiState(
+                command = savedStateHandle.get<String>(prefix + "command") ?: "pwd",
+                running = false,
+                stdout = savedStateHandle.get<String>(prefix + "stdout").orEmpty(),
+                stderr = savedStateHandle.get<String>(prefix + "stderr").orEmpty(),
+                exitCode = savedStateHandle.get<Int>(prefix + "exitCode"),
+                connectionError = if (wasRunning) {
+                    "Command was interrupted because PocketDev was stopped while in the background. Run it again to continue."
+                } else {
+                    savedStateHandle.get<String>(prefix + "connectionError")
+                },
+            ),
+            artifact = ArtifactDownloadState(
+                downloading = false,
+                remotePath = savedStateHandle.get<String>(prefix + "artifactRemote"),
+                localPath = savedStateHandle.get<String>(prefix + "artifactLocal"),
+                error = savedStateHandle.get<String>(prefix + "artifactError"),
+            ),
+            workingDirectory = savedStateHandle.get<String>(prefix + "workingDirectory")
+                ?.takeIf { it.startsWith("/") }
+                ?: fallbackWorkingDirectory,
+            gitBranch = savedStateHandle.get<String>(prefix + "gitBranch")?.takeIf { it.isNotBlank() },
+        )
+    }
+
+    private fun clearPersistedSession(projectId: String) {
+        val prefix = "session.$projectId."
+        listOf(
+            "command", "running", "stdout", "stderr", "exitCode", "connectionError",
+            "artifactRemote", "artifactLocal", "artifactError", "workingDirectory", "gitBranch",
+        ).forEach { key -> savedStateHandle.remove<Any>(prefix + key) }
+    }
+
+    private fun loadInitialState(): PocketDevState {
+        val stored = repository.load()
+        val projectCollection = projectRepository.load()
+        val sessions = projectCollection.projects.associate { project ->
+            project.id to restoreSession(project.id, project.remotePath)
+        }
+        return PocketDevState(
+            profile = stored?.profile,
+            hasStoredSecret = stored?.hasSecret == true,
+            projects = projectCollection.projects,
+            project = displayProject(projectCollection.activeProject, sessions),
+            sessions = sessions,
+        )
+    }
+}
+}dir/${'
+        _state.update(transform)
+    }
+
+    private fun updateSession(projectId: String, transform: (ProjectSessionState) -> ProjectSessionState) {
+        _state.update { state ->
+            val current = state.sessions[projectId] ?: ProjectSessionState()
+            val updated = transform(current)
+            val sessions = state.sessions + (projectId to updated)
+            val displayedProject = if (state.project?.id == projectId) {
+                displayProject(state.projects.firstOrNull { it.id == projectId } ?: state.project, sessions)
+            } else {
+                state.project
+            }
+            state.copy(sessions = sessions, project = displayedProject)
+        }
+        _state.value.sessions[projectId]?.let { persistSession(projectId, it) }
+    }
+
+    private fun ensureSessions(
+        projects: List<ProjectConfig>,
+        current: Map<String, ProjectSessionState>,
+    ): Map<String, ProjectSessionState> = projects.associate { project ->
+        val existing = current[project.id] ?: restoreSession(project.id, project.remotePath)
+        project.id to if (existing.workingDirectory.isNullOrBlank()) {
+            existing.copy(workingDirectory = project.remotePath)
+        } else {
+            existing
+        }
+    }
+
+    private fun displayProject(
+        project: ProjectConfig?,
+        sessions: Map<String, ProjectSessionState>,
+    ): ProjectConfig? = project?.let { configured ->
+        val session = sessions[configured.id]
+        val cwd = session?.workingDirectory?.takeIf { it.startsWith("/") }
+        val branch = session?.gitBranch?.takeIf { it.isNotBlank() } ?: "—"
+        configured.copy(
+            name = "${configured.name} · branch · $branch",
+            remotePath = cwd ?: configured.remotePath,
+        )
+    }
+
+    private fun persistSession(projectId: String, session: ProjectSessionState) {
+        val prefix = "session.$projectId."
+        savedStateHandle[prefix + "command"] = session.command.command
+        savedStateHandle[prefix + "running"] = session.command.running
+        savedStateHandle[prefix + "stdout"] = session.command.stdout
+        savedStateHandle[prefix + "stderr"] = session.command.stderr
+        savedStateHandle[prefix + "exitCode"] = session.command.exitCode
+        savedStateHandle[prefix + "connectionError"] = session.command.connectionError
+        savedStateHandle[prefix + "artifactRemote"] = session.artifact.remotePath
+        savedStateHandle[prefix + "artifactLocal"] = session.artifact.localPath
+        savedStateHandle[prefix + "artifactError"] = session.artifact.error
+        savedStateHandle[prefix + "workingDirectory"] = session.workingDirectory
+        savedStateHandle[prefix + "gitBranch"] = session.gitBranch
+    }
+
+    private fun restoreSession(projectId: String, fallbackWorkingDirectory: String): ProjectSessionState {
+        val prefix = "session.$projectId."
+        val wasRunning = savedStateHandle.get<Boolean>(prefix + "running") == true
+        return ProjectSessionState(
+            command = CommandUiState(
+                command = savedStateHandle.get<String>(prefix + "command") ?: "pwd",
+                running = false,
+                stdout = savedStateHandle.get<String>(prefix + "stdout").orEmpty(),
+                stderr = savedStateHandle.get<String>(prefix + "stderr").orEmpty(),
+                exitCode = savedStateHandle.get<Int>(prefix + "exitCode"),
+                connectionError = if (wasRunning) {
+                    "Command was interrupted because PocketDev was stopped while in the background. Run it again to continue."
+                } else {
+                    savedStateHandle.get<String>(prefix + "connectionError")
+                },
+            ),
+            artifact = ArtifactDownloadState(
+                downloading = false,
+                remotePath = savedStateHandle.get<String>(prefix + "artifactRemote"),
+                localPath = savedStateHandle.get<String>(prefix + "artifactLocal"),
+                error = savedStateHandle.get<String>(prefix + "artifactError"),
+            ),
+            workingDirectory = savedStateHandle.get<String>(prefix + "workingDirectory")
+                ?.takeIf { it.startsWith("/") }
+                ?: fallbackWorkingDirectory,
+            gitBranch = savedStateHandle.get<String>(prefix + "gitBranch")?.takeIf { it.isNotBlank() },
+        )
+    }
+
+    private fun clearPersistedSession(projectId: String) {
+        val prefix = "session.$projectId."
+        listOf(
+            "command", "running", "stdout", "stderr", "exitCode", "connectionError",
+            "artifactRemote", "artifactLocal", "artifactError", "workingDirectory", "gitBranch",
+        ).forEach { key -> savedStateHandle.remove<Any>(prefix + key) }
+    }
+
+    private fun loadInitialState(): PocketDevState {
+        val stored = repository.load()
+        val projectCollection = projectRepository.load()
+        val sessions = projectCollection.projects.associate { project ->
+            project.id to restoreSession(project.id, project.remotePath)
+        }
+        return PocketDevState(
+            profile = stored?.profile,
+            hasStoredSecret = stored?.hasSecret == true,
+            projects = projectCollection.projects,
+            project = displayProject(projectCollection.activeProject, sessions),
+            sessions = sessions,
+        )
+    }
+}
+}(date +%Y%m%dT%H%M%S)-${'
+        _state.update(transform)
+    }
+
+    private fun updateSession(projectId: String, transform: (ProjectSessionState) -> ProjectSessionState) {
+        _state.update { state ->
+            val current = state.sessions[projectId] ?: ProjectSessionState()
+            val updated = transform(current)
+            val sessions = state.sessions + (projectId to updated)
+            val displayedProject = if (state.project?.id == projectId) {
+                displayProject(state.projects.firstOrNull { it.id == projectId } ?: state.project, sessions)
+            } else {
+                state.project
+            }
+            state.copy(sessions = sessions, project = displayedProject)
+        }
+        _state.value.sessions[projectId]?.let { persistSession(projectId, it) }
+    }
+
+    private fun ensureSessions(
+        projects: List<ProjectConfig>,
+        current: Map<String, ProjectSessionState>,
+    ): Map<String, ProjectSessionState> = projects.associate { project ->
+        val existing = current[project.id] ?: restoreSession(project.id, project.remotePath)
+        project.id to if (existing.workingDirectory.isNullOrBlank()) {
+            existing.copy(workingDirectory = project.remotePath)
+        } else {
+            existing
+        }
+    }
+
+    private fun displayProject(
+        project: ProjectConfig?,
+        sessions: Map<String, ProjectSessionState>,
+    ): ProjectConfig? = project?.let { configured ->
+        val session = sessions[configured.id]
+        val cwd = session?.workingDirectory?.takeIf { it.startsWith("/") }
+        val branch = session?.gitBranch?.takeIf { it.isNotBlank() } ?: "—"
+        configured.copy(
+            name = "${configured.name} · branch · $branch",
+            remotePath = cwd ?: configured.remotePath,
+        )
+    }
+
+    private fun persistSession(projectId: String, session: ProjectSessionState) {
+        val prefix = "session.$projectId."
+        savedStateHandle[prefix + "command"] = session.command.command
+        savedStateHandle[prefix + "running"] = session.command.running
+        savedStateHandle[prefix + "stdout"] = session.command.stdout
+        savedStateHandle[prefix + "stderr"] = session.command.stderr
+        savedStateHandle[prefix + "exitCode"] = session.command.exitCode
+        savedStateHandle[prefix + "connectionError"] = session.command.connectionError
+        savedStateHandle[prefix + "artifactRemote"] = session.artifact.remotePath
+        savedStateHandle[prefix + "artifactLocal"] = session.artifact.localPath
+        savedStateHandle[prefix + "artifactError"] = session.artifact.error
+        savedStateHandle[prefix + "workingDirectory"] = session.workingDirectory
+        savedStateHandle[prefix + "gitBranch"] = session.gitBranch
+    }
+
+    private fun restoreSession(projectId: String, fallbackWorkingDirectory: String): ProjectSessionState {
+        val prefix = "session.$projectId."
+        val wasRunning = savedStateHandle.get<Boolean>(prefix + "running") == true
+        return ProjectSessionState(
+            command = CommandUiState(
+                command = savedStateHandle.get<String>(prefix + "command") ?: "pwd",
+                running = false,
+                stdout = savedStateHandle.get<String>(prefix + "stdout").orEmpty(),
+                stderr = savedStateHandle.get<String>(prefix + "stderr").orEmpty(),
+                exitCode = savedStateHandle.get<Int>(prefix + "exitCode"),
+                connectionError = if (wasRunning) {
+                    "Command was interrupted because PocketDev was stopped while in the background. Run it again to continue."
+                } else {
+                    savedStateHandle.get<String>(prefix + "connectionError")
+                },
+            ),
+            artifact = ArtifactDownloadState(
+                downloading = false,
+                remotePath = savedStateHandle.get<String>(prefix + "artifactRemote"),
+                localPath = savedStateHandle.get<String>(prefix + "artifactLocal"),
+                error = savedStateHandle.get<String>(prefix + "artifactError"),
+            ),
+            workingDirectory = savedStateHandle.get<String>(prefix + "workingDirectory")
+                ?.takeIf { it.startsWith("/") }
+                ?: fallbackWorkingDirectory,
+            gitBranch = savedStateHandle.get<String>(prefix + "gitBranch")?.takeIf { it.isNotBlank() },
+        )
+    }
+
+    private fun clearPersistedSession(projectId: String) {
+        val prefix = "session.$projectId."
+        listOf(
+            "command", "running", "stdout", "stderr", "exitCode", "connectionError",
+            "artifactRemote", "artifactLocal", "artifactError", "workingDirectory", "gitBranch",
+        ).forEach { key -> savedStateHandle.remove<Any>(prefix + key) }
+    }
+
+    private fun loadInitialState(): PocketDevState {
+        val stored = repository.load()
+        val projectCollection = projectRepository.load()
+        val sessions = projectCollection.projects.associate { project ->
+            project.id to restoreSession(project.id, project.remotePath)
+        }
+        return PocketDevState(
+            profile = stored?.profile,
+            hasStoredSecret = stored?.hasSecret == true,
+            projects = projectCollection.projects,
+            project = displayProject(projectCollection.activeProject, sessions),
+            sessions = sessions,
+        )
+    }
+}
+}${'
+        _state.update(transform)
+    }
+
+    private fun updateSession(projectId: String, transform: (ProjectSessionState) -> ProjectSessionState) {
+        _state.update { state ->
+            val current = state.sessions[projectId] ?: ProjectSessionState()
+            val updated = transform(current)
+            val sessions = state.sessions + (projectId to updated)
+            val displayedProject = if (state.project?.id == projectId) {
+                displayProject(state.projects.firstOrNull { it.id == projectId } ?: state.project, sessions)
+            } else {
+                state.project
+            }
+            state.copy(sessions = sessions, project = displayedProject)
+        }
+        _state.value.sessions[projectId]?.let { persistSession(projectId, it) }
+    }
+
+    private fun ensureSessions(
+        projects: List<ProjectConfig>,
+        current: Map<String, ProjectSessionState>,
+    ): Map<String, ProjectSessionState> = projects.associate { project ->
+        val existing = current[project.id] ?: restoreSession(project.id, project.remotePath)
+        project.id to if (existing.workingDirectory.isNullOrBlank()) {
+            existing.copy(workingDirectory = project.remotePath)
+        } else {
+            existing
+        }
+    }
+
+    private fun displayProject(
+        project: ProjectConfig?,
+        sessions: Map<String, ProjectSessionState>,
+    ): ProjectConfig? = project?.let { configured ->
+        val session = sessions[configured.id]
+        val cwd = session?.workingDirectory?.takeIf { it.startsWith("/") }
+        val branch = session?.gitBranch?.takeIf { it.isNotBlank() } ?: "—"
+        configured.copy(
+            name = "${configured.name} · branch · $branch",
+            remotePath = cwd ?: configured.remotePath,
+        )
+    }
+
+    private fun persistSession(projectId: String, session: ProjectSessionState) {
+        val prefix = "session.$projectId."
+        savedStateHandle[prefix + "command"] = session.command.command
+        savedStateHandle[prefix + "running"] = session.command.running
+        savedStateHandle[prefix + "stdout"] = session.command.stdout
+        savedStateHandle[prefix + "stderr"] = session.command.stderr
+        savedStateHandle[prefix + "exitCode"] = session.command.exitCode
+        savedStateHandle[prefix + "connectionError"] = session.command.connectionError
+        savedStateHandle[prefix + "artifactRemote"] = session.artifact.remotePath
+        savedStateHandle[prefix + "artifactLocal"] = session.artifact.localPath
+        savedStateHandle[prefix + "artifactError"] = session.artifact.error
+        savedStateHandle[prefix + "workingDirectory"] = session.workingDirectory
+        savedStateHandle[prefix + "gitBranch"] = session.gitBranch
+    }
+
+    private fun restoreSession(projectId: String, fallbackWorkingDirectory: String): ProjectSessionState {
+        val prefix = "session.$projectId."
+        val wasRunning = savedStateHandle.get<Boolean>(prefix + "running") == true
+        return ProjectSessionState(
+            command = CommandUiState(
+                command = savedStateHandle.get<String>(prefix + "command") ?: "pwd",
+                running = false,
+                stdout = savedStateHandle.get<String>(prefix + "stdout").orEmpty(),
+                stderr = savedStateHandle.get<String>(prefix + "stderr").orEmpty(),
+                exitCode = savedStateHandle.get<Int>(prefix + "exitCode"),
+                connectionError = if (wasRunning) {
+                    "Command was interrupted because PocketDev was stopped while in the background. Run it again to continue."
+                } else {
+                    savedStateHandle.get<String>(prefix + "connectionError")
+                },
+            ),
+            artifact = ArtifactDownloadState(
+                downloading = false,
+                remotePath = savedStateHandle.get<String>(prefix + "artifactRemote"),
+                localPath = savedStateHandle.get<String>(prefix + "artifactLocal"),
+                error = savedStateHandle.get<String>(prefix + "artifactError"),
+            ),
+            workingDirectory = savedStateHandle.get<String>(prefix + "workingDirectory")
+                ?.takeIf { it.startsWith("/") }
+                ?: fallbackWorkingDirectory,
+            gitBranch = savedStateHandle.get<String>(prefix + "gitBranch")?.takeIf { it.isNotBlank() },
+        )
+    }
+
+    private fun clearPersistedSession(projectId: String) {
+        val prefix = "session.$projectId."
+        listOf(
+            "command", "running", "stdout", "stderr", "exitCode", "connectionError",
+            "artifactRemote", "artifactLocal", "artifactError", "workingDirectory", "gitBranch",
+        ).forEach { key -> savedStateHandle.remove<Any>(prefix + key) }
+    }
+
+    private fun loadInitialState(): PocketDevState {
+        val stored = repository.load()
+        val projectCollection = projectRepository.load()
+        val sessions = projectCollection.projects.associate { project ->
+            project.id to restoreSession(project.id, project.remotePath)
+        }
+        return PocketDevState(
+            profile = stored?.profile,
+            hasStoredSecret = stored?.hasSecret == true,
+            projects = projectCollection.projects,
+            project = displayProject(projectCollection.activeProject, sessions),
+            sessions = sessions,
+        )
+    }
+}
+}"
+            printf 'POCKETDEV_JOB_LOG:%s\\n' "${'
+        _state.update(transform)
+    }
+
+    private fun updateSession(projectId: String, transform: (ProjectSessionState) -> ProjectSessionState) {
+        _state.update { state ->
+            val current = state.sessions[projectId] ?: ProjectSessionState()
+            val updated = transform(current)
+            val sessions = state.sessions + (projectId to updated)
+            val displayedProject = if (state.project?.id == projectId) {
+                displayProject(state.projects.firstOrNull { it.id == projectId } ?: state.project, sessions)
+            } else {
+                state.project
+            }
+            state.copy(sessions = sessions, project = displayedProject)
+        }
+        _state.value.sessions[projectId]?.let { persistSession(projectId, it) }
+    }
+
+    private fun ensureSessions(
+        projects: List<ProjectConfig>,
+        current: Map<String, ProjectSessionState>,
+    ): Map<String, ProjectSessionState> = projects.associate { project ->
+        val existing = current[project.id] ?: restoreSession(project.id, project.remotePath)
+        project.id to if (existing.workingDirectory.isNullOrBlank()) {
+            existing.copy(workingDirectory = project.remotePath)
+        } else {
+            existing
+        }
+    }
+
+    private fun displayProject(
+        project: ProjectConfig?,
+        sessions: Map<String, ProjectSessionState>,
+    ): ProjectConfig? = project?.let { configured ->
+        val session = sessions[configured.id]
+        val cwd = session?.workingDirectory?.takeIf { it.startsWith("/") }
+        val branch = session?.gitBranch?.takeIf { it.isNotBlank() } ?: "—"
+        configured.copy(
+            name = "${configured.name} · branch · $branch",
+            remotePath = cwd ?: configured.remotePath,
+        )
+    }
+
+    private fun persistSession(projectId: String, session: ProjectSessionState) {
+        val prefix = "session.$projectId."
+        savedStateHandle[prefix + "command"] = session.command.command
+        savedStateHandle[prefix + "running"] = session.command.running
+        savedStateHandle[prefix + "stdout"] = session.command.stdout
+        savedStateHandle[prefix + "stderr"] = session.command.stderr
+        savedStateHandle[prefix + "exitCode"] = session.command.exitCode
+        savedStateHandle[prefix + "connectionError"] = session.command.connectionError
+        savedStateHandle[prefix + "artifactRemote"] = session.artifact.remotePath
+        savedStateHandle[prefix + "artifactLocal"] = session.artifact.localPath
+        savedStateHandle[prefix + "artifactError"] = session.artifact.error
+        savedStateHandle[prefix + "workingDirectory"] = session.workingDirectory
+        savedStateHandle[prefix + "gitBranch"] = session.gitBranch
+    }
+
+    private fun restoreSession(projectId: String, fallbackWorkingDirectory: String): ProjectSessionState {
+        val prefix = "session.$projectId."
+        val wasRunning = savedStateHandle.get<Boolean>(prefix + "running") == true
+        return ProjectSessionState(
+            command = CommandUiState(
+                command = savedStateHandle.get<String>(prefix + "command") ?: "pwd",
+                running = false,
+                stdout = savedStateHandle.get<String>(prefix + "stdout").orEmpty(),
+                stderr = savedStateHandle.get<String>(prefix + "stderr").orEmpty(),
+                exitCode = savedStateHandle.get<Int>(prefix + "exitCode"),
+                connectionError = if (wasRunning) {
+                    "Command was interrupted because PocketDev was stopped while in the background. Run it again to continue."
+                } else {
+                    savedStateHandle.get<String>(prefix + "connectionError")
+                },
+            ),
+            artifact = ArtifactDownloadState(
+                downloading = false,
+                remotePath = savedStateHandle.get<String>(prefix + "artifactRemote"),
+                localPath = savedStateHandle.get<String>(prefix + "artifactLocal"),
+                error = savedStateHandle.get<String>(prefix + "artifactError"),
+            ),
+            workingDirectory = savedStateHandle.get<String>(prefix + "workingDirectory")
+                ?.takeIf { it.startsWith("/") }
+                ?: fallbackWorkingDirectory,
+            gitBranch = savedStateHandle.get<String>(prefix + "gitBranch")?.takeIf { it.isNotBlank() },
+        )
+    }
+
+    private fun clearPersistedSession(projectId: String) {
+        val prefix = "session.$projectId."
+        listOf(
+            "command", "running", "stdout", "stderr", "exitCode", "connectionError",
+            "artifactRemote", "artifactLocal", "artifactError", "workingDirectory", "gitBranch",
+        ).forEach { key -> savedStateHandle.remove<Any>(prefix + key) }
+    }
+
+    private fun loadInitialState(): PocketDevState {
+        val stored = repository.load()
+        val projectCollection = projectRepository.load()
+        val sessions = projectCollection.projects.associate { project ->
+            project.id to restoreSession(project.id, project.remotePath)
+        }
+        return PocketDevState(
+            profile = stored?.profile,
+            hasStoredSecret = stored?.hasSecret == true,
+            projects = projectCollection.projects,
+            project = displayProject(projectCollection.activeProject, sessions),
+            sessions = sessions,
+        )
+    }
+}
+}prefix"
+            exec > >(tee "${'
+        _state.update(transform)
+    }
+
+    private fun updateSession(projectId: String, transform: (ProjectSessionState) -> ProjectSessionState) {
+        _state.update { state ->
+            val current = state.sessions[projectId] ?: ProjectSessionState()
+            val updated = transform(current)
+            val sessions = state.sessions + (projectId to updated)
+            val displayedProject = if (state.project?.id == projectId) {
+                displayProject(state.projects.firstOrNull { it.id == projectId } ?: state.project, sessions)
+            } else {
+                state.project
+            }
+            state.copy(sessions = sessions, project = displayedProject)
+        }
+        _state.value.sessions[projectId]?.let { persistSession(projectId, it) }
+    }
+
+    private fun ensureSessions(
+        projects: List<ProjectConfig>,
+        current: Map<String, ProjectSessionState>,
+    ): Map<String, ProjectSessionState> = projects.associate { project ->
+        val existing = current[project.id] ?: restoreSession(project.id, project.remotePath)
+        project.id to if (existing.workingDirectory.isNullOrBlank()) {
+            existing.copy(workingDirectory = project.remotePath)
+        } else {
+            existing
+        }
+    }
+
+    private fun displayProject(
+        project: ProjectConfig?,
+        sessions: Map<String, ProjectSessionState>,
+    ): ProjectConfig? = project?.let { configured ->
+        val session = sessions[configured.id]
+        val cwd = session?.workingDirectory?.takeIf { it.startsWith("/") }
+        val branch = session?.gitBranch?.takeIf { it.isNotBlank() } ?: "—"
+        configured.copy(
+            name = "${configured.name} · branch · $branch",
+            remotePath = cwd ?: configured.remotePath,
+        )
+    }
+
+    private fun persistSession(projectId: String, session: ProjectSessionState) {
+        val prefix = "session.$projectId."
+        savedStateHandle[prefix + "command"] = session.command.command
+        savedStateHandle[prefix + "running"] = session.command.running
+        savedStateHandle[prefix + "stdout"] = session.command.stdout
+        savedStateHandle[prefix + "stderr"] = session.command.stderr
+        savedStateHandle[prefix + "exitCode"] = session.command.exitCode
+        savedStateHandle[prefix + "connectionError"] = session.command.connectionError
+        savedStateHandle[prefix + "artifactRemote"] = session.artifact.remotePath
+        savedStateHandle[prefix + "artifactLocal"] = session.artifact.localPath
+        savedStateHandle[prefix + "artifactError"] = session.artifact.error
+        savedStateHandle[prefix + "workingDirectory"] = session.workingDirectory
+        savedStateHandle[prefix + "gitBranch"] = session.gitBranch
+    }
+
+    private fun restoreSession(projectId: String, fallbackWorkingDirectory: String): ProjectSessionState {
+        val prefix = "session.$projectId."
+        val wasRunning = savedStateHandle.get<Boolean>(prefix + "running") == true
+        return ProjectSessionState(
+            command = CommandUiState(
+                command = savedStateHandle.get<String>(prefix + "command") ?: "pwd",
+                running = false,
+                stdout = savedStateHandle.get<String>(prefix + "stdout").orEmpty(),
+                stderr = savedStateHandle.get<String>(prefix + "stderr").orEmpty(),
+                exitCode = savedStateHandle.get<Int>(prefix + "exitCode"),
+                connectionError = if (wasRunning) {
+                    "Command was interrupted because PocketDev was stopped while in the background. Run it again to continue."
+                } else {
+                    savedStateHandle.get<String>(prefix + "connectionError")
+                },
+            ),
+            artifact = ArtifactDownloadState(
+                downloading = false,
+                remotePath = savedStateHandle.get<String>(prefix + "artifactRemote"),
+                localPath = savedStateHandle.get<String>(prefix + "artifactLocal"),
+                error = savedStateHandle.get<String>(prefix + "artifactError"),
+            ),
+            workingDirectory = savedStateHandle.get<String>(prefix + "workingDirectory")
+                ?.takeIf { it.startsWith("/") }
+                ?: fallbackWorkingDirectory,
+            gitBranch = savedStateHandle.get<String>(prefix + "gitBranch")?.takeIf { it.isNotBlank() },
+        )
+    }
+
+    private fun clearPersistedSession(projectId: String) {
+        val prefix = "session.$projectId."
+        listOf(
+            "command", "running", "stdout", "stderr", "exitCode", "connectionError",
+            "artifactRemote", "artifactLocal", "artifactError", "workingDirectory", "gitBranch",
+        ).forEach { key -> savedStateHandle.remove<Any>(prefix + key) }
+    }
+
+    private fun loadInitialState(): PocketDevState {
+        val stored = repository.load()
+        val projectCollection = projectRepository.load()
+        val sessions = projectCollection.projects.associate { project ->
+            project.id to restoreSession(project.id, project.remotePath)
+        }
+        return PocketDevState(
+            profile = stored?.profile,
+            hasStoredSecret = stored?.hasSecret == true,
+            projects = projectCollection.projects,
+            project = displayProject(projectCollection.activeProject, sessions),
+            sessions = sessions,
+        )
+    }
+}
+}prefix.stdout") 2> >(tee "${'
+        _state.update(transform)
+    }
+
+    private fun updateSession(projectId: String, transform: (ProjectSessionState) -> ProjectSessionState) {
+        _state.update { state ->
+            val current = state.sessions[projectId] ?: ProjectSessionState()
+            val updated = transform(current)
+            val sessions = state.sessions + (projectId to updated)
+            val displayedProject = if (state.project?.id == projectId) {
+                displayProject(state.projects.firstOrNull { it.id == projectId } ?: state.project, sessions)
+            } else {
+                state.project
+            }
+            state.copy(sessions = sessions, project = displayedProject)
+        }
+        _state.value.sessions[projectId]?.let { persistSession(projectId, it) }
+    }
+
+    private fun ensureSessions(
+        projects: List<ProjectConfig>,
+        current: Map<String, ProjectSessionState>,
+    ): Map<String, ProjectSessionState> = projects.associate { project ->
+        val existing = current[project.id] ?: restoreSession(project.id, project.remotePath)
+        project.id to if (existing.workingDirectory.isNullOrBlank()) {
+            existing.copy(workingDirectory = project.remotePath)
+        } else {
+            existing
+        }
+    }
+
+    private fun displayProject(
+        project: ProjectConfig?,
+        sessions: Map<String, ProjectSessionState>,
+    ): ProjectConfig? = project?.let { configured ->
+        val session = sessions[configured.id]
+        val cwd = session?.workingDirectory?.takeIf { it.startsWith("/") }
+        val branch = session?.gitBranch?.takeIf { it.isNotBlank() } ?: "—"
+        configured.copy(
+            name = "${configured.name} · branch · $branch",
+            remotePath = cwd ?: configured.remotePath,
+        )
+    }
+
+    private fun persistSession(projectId: String, session: ProjectSessionState) {
+        val prefix = "session.$projectId."
+        savedStateHandle[prefix + "command"] = session.command.command
+        savedStateHandle[prefix + "running"] = session.command.running
+        savedStateHandle[prefix + "stdout"] = session.command.stdout
+        savedStateHandle[prefix + "stderr"] = session.command.stderr
+        savedStateHandle[prefix + "exitCode"] = session.command.exitCode
+        savedStateHandle[prefix + "connectionError"] = session.command.connectionError
+        savedStateHandle[prefix + "artifactRemote"] = session.artifact.remotePath
+        savedStateHandle[prefix + "artifactLocal"] = session.artifact.localPath
+        savedStateHandle[prefix + "artifactError"] = session.artifact.error
+        savedStateHandle[prefix + "workingDirectory"] = session.workingDirectory
+        savedStateHandle[prefix + "gitBranch"] = session.gitBranch
+    }
+
+    private fun restoreSession(projectId: String, fallbackWorkingDirectory: String): ProjectSessionState {
+        val prefix = "session.$projectId."
+        val wasRunning = savedStateHandle.get<Boolean>(prefix + "running") == true
+        return ProjectSessionState(
+            command = CommandUiState(
+                command = savedStateHandle.get<String>(prefix + "command") ?: "pwd",
+                running = false,
+                stdout = savedStateHandle.get<String>(prefix + "stdout").orEmpty(),
+                stderr = savedStateHandle.get<String>(prefix + "stderr").orEmpty(),
+                exitCode = savedStateHandle.get<Int>(prefix + "exitCode"),
+                connectionError = if (wasRunning) {
+                    "Command was interrupted because PocketDev was stopped while in the background. Run it again to continue."
+                } else {
+                    savedStateHandle.get<String>(prefix + "connectionError")
+                },
+            ),
+            artifact = ArtifactDownloadState(
+                downloading = false,
+                remotePath = savedStateHandle.get<String>(prefix + "artifactRemote"),
+                localPath = savedStateHandle.get<String>(prefix + "artifactLocal"),
+                error = savedStateHandle.get<String>(prefix + "artifactError"),
+            ),
+            workingDirectory = savedStateHandle.get<String>(prefix + "workingDirectory")
+                ?.takeIf { it.startsWith("/") }
+                ?: fallbackWorkingDirectory,
+            gitBranch = savedStateHandle.get<String>(prefix + "gitBranch")?.takeIf { it.isNotBlank() },
+        )
+    }
+
+    private fun clearPersistedSession(projectId: String) {
+        val prefix = "session.$projectId."
+        listOf(
+            "command", "running", "stdout", "stderr", "exitCode", "connectionError",
+            "artifactRemote", "artifactLocal", "artifactError", "workingDirectory", "gitBranch",
+        ).forEach { key -> savedStateHandle.remove<Any>(prefix + key) }
+    }
+
+    private fun loadInitialState(): PocketDevState {
+        val stored = repository.load()
+        val projectCollection = projectRepository.load()
+        val sessions = projectCollection.projects.associate { project ->
+            project.id to restoreSession(project.id, project.remotePath)
+        }
+        return PocketDevState(
+            profile = stored?.profile,
+            hasStoredSecret = stored?.hasSecret == true,
+            projects = projectCollection.projects,
+            project = displayProject(projectCollection.activeProject, sessions),
+            sessions = sessions,
+        )
+    }
+}
+}prefix.stderr" >&2)
+            $command
+        """.trimIndent()
+        return "bash -c " + ProjectCommandBuilder.shellQuote(script)
     }
 
     private fun updateState(transform: (PocketDevState) -> PocketDevState) {
