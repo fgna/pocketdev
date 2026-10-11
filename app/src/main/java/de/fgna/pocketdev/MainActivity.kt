@@ -10,6 +10,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
+import java.io.FileInputStream
+import java.security.MessageDigest
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -766,6 +768,23 @@ private fun openApk(context: Context, path: String) {
     val verifiedHash = runCatching { marker.readText().trim() }.getOrNull()
     if (!marker.isFile || verifiedHash == null || !verifiedHash.matches(Regex("^[0-9a-f]{64}$"))) {
         Toast.makeText(context, "APK is not verified. Tap Get APK again before installing.", Toast.LENGTH_LONG).show()
+        return
+    }
+
+    val actualHash = runCatching {
+        val digest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(file).use { input ->
+            val buffer = ByteArray(8192)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+    }.getOrNull()
+    if (actualHash == null || !actualHash.equals(verifiedHash, ignoreCase = true)) {
+        Toast.makeText(context, "APK verification failed: file changed after download.", Toast.LENGTH_LONG).show()
         return
     }
 
