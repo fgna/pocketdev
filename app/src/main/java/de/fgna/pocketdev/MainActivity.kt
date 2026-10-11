@@ -51,6 +51,8 @@ import de.fgna.pocketdev.artifact.ApkInstaller
 import de.fgna.pocketdev.artifact.SshArtifactRetriever
 import de.fgna.pocketdev.diagnostics.DiagnosticDraftBuilder
 import de.fgna.pocketdev.diagnostics.DiagnosticIssueDraft
+import de.fgna.pocketdev.project.ActionProfileTemplates
+import de.fgna.pocketdev.project.ActionDefinition
 import de.fgna.pocketdev.project.ProjectAction
 import de.fgna.pocketdev.project.ProjectCommandBuilder
 import de.fgna.pocketdev.project.ProjectConfig
@@ -91,8 +93,8 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
         ) nearbyPermissionLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
         else vm.runCommand()
     }
-    val runProjectAction: (ProjectAction) -> Unit = { action ->
-        if (vm.prepareProjectAction(action)) runWithLanPermission()
+    val runProjectAction: (String) -> Unit = { actionId ->
+        if (vm.prepareProjectAction(actionId)) runWithLanPermission()
     }
 
     PocketDevTheme {
@@ -216,7 +218,7 @@ private fun PocketDevHome(
     onConfigure: () -> Unit,
     onProjects: () -> Unit,
     onSelectProject: (String) -> Unit,
-    onProjectAction: (ProjectAction) -> Unit,
+    onProjectAction: (String) -> Unit,
     onDownloadArtifact: () -> Unit,
     onOpenArtifact: (String) -> Unit,
     onCommandChange: (String) -> Unit,
@@ -334,15 +336,42 @@ private fun PocketDevHome(
                                 Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                             }
 
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                OutlinedButton(modifier = Modifier.weight(1f), onClick = { onProjectAction(ProjectAction.GIT_STATUS) }, enabled = !busy) { Text("Status") }
-                                OutlinedButton(modifier = Modifier.weight(1f), onClick = { onProjectAction(ProjectAction.TEST) }, enabled = !busy && project.testCommand.isNotBlank()) { Text("Test") }
-                                Button(modifier = Modifier.weight(1f), onClick = { onProjectAction(ProjectAction.BUILD) }, enabled = !busy && project.buildCommand.isNotBlank()) { Text("Build") }
+                            val actions = remember(project) { ProjectCommandBuilder.availableActions(project) }
+                            var pendingAction by remember(project.id) { mutableStateOf<ActionDefinition?>(null) }
+                            actions.chunked(3).forEach { group ->
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    group.forEach { action ->
+                                        OutlinedButton(
+                                            modifier = Modifier.weight(1f),
+                                            onClick = {
+                                                if (action.requiresConfirmation) pendingAction = action
+                                                else onProjectAction(action.id)
+                                            },
+                                            enabled = !busy,
+                                        ) { Text(action.label) }
+                                    }
+                                }
+                            }
+                            pendingAction?.let { action ->
+                                AlertDialog(
+                                    onDismissRequest = { pendingAction = null },
+                                    title = { Text("Run ${action.label}?") },
+                                    text = { Text(action.command) },
+                                    confirmButton = {
+                                        TextButton(onClick = {
+                                            pendingAction = null
+                                            onProjectAction(action.id)
+                                        }) { Text("Run") }
+                                    },
+                                    dismissButton = { TextButton(onClick = { pendingAction = null }) { Text("Cancel") } },
+                                )
                             }
 
+                            if (project.actionProfileId == ActionProfileTemplates.android.id) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 OutlinedButton(modifier = Modifier.weight(1f), onClick = onDownloadArtifact, enabled = profile.hostKeySha256.isNotBlank() && state.hasStoredSecret && !busy) { Text(if (artifact.downloading) "Downloading…" else "Get APK") }
                                 OutlinedButton(modifier = Modifier.weight(1f), onClick = { artifact.localPath?.let(onOpenArtifact) }, enabled = artifact.localPath != null && !artifact.downloading) { Text("Open APK") }
+                            }
                             }
 
                             when {
