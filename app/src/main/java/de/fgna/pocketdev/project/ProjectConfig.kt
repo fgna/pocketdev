@@ -7,6 +7,8 @@ data class ProjectConfig(
     val buildCommand: String,
     val githubRepository: String = "",
     val id: String = "",
+    val actionProfileId: String = ActionProfileTemplates.android.id,
+    val customActions: List<ActionDefinition> = emptyList(),
 )
 
 enum class ProjectAction {
@@ -16,6 +18,19 @@ enum class ProjectAction {
 }
 
 object ProjectCommandBuilder {
+    fun availableActions(project: ProjectConfig): List<ActionDefinition> {
+        val profile = ActionProfileTemplates.find(project.actionProfileId)
+            ?: throw IllegalArgumentException("Unknown action profile: ${project.actionProfileId}")
+        return ActionProfileResolver.resolve(profile, project.customActions)
+    }
+
+    fun command(project: ProjectConfig, actionId: String): String {
+        val action = availableActions(project).firstOrNull { it.id == actionId }
+            ?: throw IllegalArgumentException("Unknown project action: $actionId")
+        ActionProfileResolver.validate(action)
+        return action.command.trim()
+    }
+
     const val CWD_MARKER_PREFIX = "__POCKETDEV_CWD__"
 
     fun command(project: ProjectConfig, action: ProjectAction): String {
