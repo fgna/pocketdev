@@ -41,6 +41,8 @@ data class ProjectEditorState(
     val testCommand: String = "./gradlew test",
     val buildCommand: String = "./gradlew assembleDebug",
     val githubRepository: String = "",
+    val actionProfileId: String = "android-gradle",
+    val customActions: List<de.fgna.pocketdev.project.ActionDefinition> = emptyList(),
 )
 
 data class ProjectSessionState(
@@ -175,6 +177,8 @@ class PocketDevViewModel(
                     testCommand = current.testCommand,
                     buildCommand = current.buildCommand,
                     githubRepository = current.githubRepository,
+                    actionProfileId = current.actionProfileId,
+                    customActions = current.customActions,
                 ),
             )
         }
@@ -203,6 +207,8 @@ class PocketDevViewModel(
             testCommand = editor.testCommand.trim(),
             buildCommand = editor.buildCommand.trim(),
             githubRepository = editor.githubRepository.trim(),
+            actionProfileId = editor.actionProfileId,
+            customActions = editor.customActions,
         )
         val collection = projectRepository.upsert(project, makeActive = true)
         updateState {
