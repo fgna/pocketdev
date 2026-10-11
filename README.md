@@ -106,6 +106,7 @@ PocketDev assumes the SSH server is infrastructure you already control. It is no
 - `docs/apk-signing.md` — APK signing notes.
 - `docs/fdroid.md` — F-Droid readiness and submission workflow.
 - `docs/git-key-agent.md` — persistent Git SSH-agent behavior.
+- [Codex CLI from PocketDev](docs/codex-remote-tmux.md) — tmux-backed remote agent runs that survive mobile SSH disconnects.
 - `docs/user-testing-apk-installer.md` — APK installer test notes.
 
 ## License
