@@ -1,6 +1,7 @@
 package de.fgna.pocketdev.data
 
 import de.fgna.pocketdev.project.ProjectConfig
+import de.fgna.pocketdev.project.ActionDefinition
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -27,6 +28,26 @@ class ProjectConfigCodecTest {
         )
 
         assertEquals(projects, ProjectConfigCodec.decode(ProjectConfigCodec.encode(projects)))
+    }
+
+    @Test
+    fun profileAndCustomActionsRoundTrip() {
+        val project = ProjectConfig(
+            id = "docker", name = "Service", remotePath = "/srv/service",
+            testCommand = "", buildCommand = "", actionProfileId = "docker-compose",
+            customActions = listOf(ActionDefinition("deploy", "Deploy, now", "echo a;b|c\\nnext", true)),
+        )
+        assertEquals(listOf(project), ProjectConfigCodec.decode(ProjectConfigCodec.encode(listOf(project))))
+    }
+
+    @Test
+    fun legacySixFieldRowsKeepAndroidDefaults() {
+        val project = ProjectConfig(
+            id = "legacy", name = "Android", remotePath = "/srv/android",
+            testCommand = "./gradlew test", buildCommand = "./gradlew assembleDebug",
+        )
+        val row = ProjectConfigCodec.encode(listOf(project)).split("|").take(6).joinToString("|")
+        assertEquals(listOf(project), ProjectConfigCodec.decode(row))
     }
 
     @Test
