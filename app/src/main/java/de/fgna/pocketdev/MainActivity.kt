@@ -609,12 +609,73 @@ private fun ProjectDialog(
                     supportingText = { Text(if (state.remotePath.isNotBlank() && !remotePathValid) "Must start with /, e.g. /home/user/Projects/app" else "Absolute directory on the SSH server") },
                     isError = state.remotePath.isNotBlank() && !remotePathValid,
                 )
+                Text("Action profile", style = MaterialTheme.typography.titleSmall)
+                ActionProfileTemplates.all.forEach { template ->
+                    OutlinedButton(
+                        onClick = { onChange { it.copy(actionProfileId = template.id) } },
+                        enabled = state.actionProfileId != template.id,
+                    ) { Text(template.name + if (state.actionProfileId == template.id) " (selected)" else "") }
+                }
+                Text("Custom actions", style = MaterialTheme.typography.titleSmall)
+                state.customActions.forEachIndexed { index, action ->
+                    OutlinedTextField(
+                        value = action.label,
+                        onValueChange = { value -> onChange { editor ->
+                            editor.copy(customActions = editor.customActions.toMutableList().also {
+                                it[index] = action.copy(label = value)
+                            })
+                        } },
+                        label = { Text("Button label") },
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = action.id,
+                        onValueChange = { value -> onChange { editor ->
+                            editor.copy(customActions = editor.customActions.toMutableList().also {
+                                it[index] = action.copy(id = value)
+                            })
+                        } },
+                        label = { Text("Action ID (same ID overrides preset)") },
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = action.command,
+                        onValueChange = { value -> onChange { editor ->
+                            editor.copy(customActions = editor.customActions.toMutableList().also {
+                                it[index] = action.copy(command = value)
+                            })
+                        } },
+                        label = { Text("SSH command") },
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { onChange { editor ->
+                            editor.copy(customActions = editor.customActions.toMutableList().also {
+                                it[index] = action.copy(requiresConfirmation = !action.requiresConfirmation)
+                            })
+                        } }) { Text(if (action.requiresConfirmation) "Confirmation: on" else "Confirmation: off") }
+                        TextButton(onClick = { onChange { editor ->
+                            editor.copy(customActions = editor.customActions.filterIndexed { i, _ -> i != index })
+                        } }) { Text("Remove") }
+                    }
+                }
+                OutlinedButton(onClick = { onChange { editor ->
+                    editor.copy(customActions = editor.customActions + ActionDefinition(
+                        id = "custom-" + (editor.customActions.size + 1),
+                        label = "Custom action",
+                        command = "pwd",
+                    ))
+                } }) { Text("Add action") }
                 OutlinedTextField(value = state.testCommand, onValueChange = { value -> onChange { it.copy(testCommand = value) } }, label = { Text("Test command") }, singleLine = true)
                 OutlinedTextField(value = state.buildCommand, onValueChange = { value -> onChange { it.copy(buildCommand = value) } }, label = { Text("Build command") }, singleLine = true)
                 OutlinedTextField(value = state.githubRepository, onValueChange = { value -> onChange { it.copy(githubRepository = value.trim()) } }, label = { Text("GitHub repository") }, supportingText = { Text("Optional owner/name, e.g. fgna/pocketdev") }, singleLine = true)
             }
         },
-        confirmButton = { TextButton(onClick = onSave, enabled = state.name.isNotBlank() && remotePathValid) { Text("Save") } },
+        confirmButton = { TextButton(onClick = onSave, enabled = state.name.isNotBlank() && remotePathValid && runCatching {
+            de.fgna.pocketdev.project.ActionProfileResolver.resolve(
+                ActionProfileTemplates.find(state.actionProfileId) ?: error("Unknown profile"),
+                state.customActions,
+            )
+        }.isSuccess) { Text("Save") } },
         dismissButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (editingExisting) TextButton(onClick = { confirmDelete = true }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
