@@ -259,6 +259,20 @@ class PocketDevViewModel(
         collection.activeProject?.id?.let(::refreshGitBranch)
     }
 
+    fun prepareProjectAction(actionId: String): Boolean {
+        val activeId = _state.value.project?.id ?: return false
+        val project = _state.value.projects.firstOrNull { it.id == activeId } ?: return false
+        val command = runCatching { ProjectCommandBuilder.command(project, actionId) }
+            .getOrElse { error ->
+                updateSession(project.id) { session ->
+                    session.copy(command = session.command.copy(connectionError = error.message ?: "Project action is not configured."))
+                }
+                return false
+            }
+        setCommand(command)
+        return true
+    }
+
     fun prepareProjectAction(action: ProjectAction): Boolean {
         val activeId = _state.value.project?.id ?: return false
         val project = _state.value.projects.firstOrNull { it.id == activeId } ?: return false
