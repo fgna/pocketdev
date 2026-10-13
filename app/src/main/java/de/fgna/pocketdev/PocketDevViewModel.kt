@@ -14,6 +14,7 @@ import de.fgna.pocketdev.project.ProjectConfig
 import de.fgna.pocketdev.project.ProjectProvisioning
 import de.fgna.pocketdev.ssh.AuthMode
 import de.fgna.pocketdev.ssh.CommandEvent
+import de.fgna.pocketdev.ssh.CommandInputHandle
 import de.fgna.pocketdev.ssh.CommandStateReducer
 import de.fgna.pocketdev.ssh.CommandUiState
 import de.fgna.pocketdev.ssh.GitSshAgent
@@ -105,6 +106,9 @@ class PocketDevViewModel(
 
     private val _state = MutableStateFlow(loadInitialState())
     val state: StateFlow<PocketDevState> = _state.asStateFlow()
+
+    fun captureCommandInput(projectId: String): CommandInputHandle? =
+        if (_state.value.sessions[projectId]?.command?.running == true) executor.captureInput(projectId) else null
 
     init {
         refreshGitKeyStatus()

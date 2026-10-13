@@ -12,12 +12,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -26,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -34,9 +38,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.fgna.pocketdev.ssh.SshjCommandExecutor
+import de.fgna.pocketdev.ssh.CommandInputHandle
 import de.fgna.pocketdev.transfer.FileTransferScreen
 import de.fgna.pocketdev.transfer.TransferActivityRegistry
 import de.fgna.pocketdev.ui.PocketDevTheme
@@ -74,6 +81,7 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     val scope = rememberCoroutineScope()
     val command = state.command
     val activeProjectId = state.project?.id.orEmpty()
+    var inputTarget by remember(activeProjectId) { mutableStateOf<CommandInputHandle?>(null) }
     val anyCommandRunning = state.sessions.values.any { it.command.running }
     val anyArtifactDownloading = state.sessions.values.any { it.artifact.downloading }
     var showFiles by remember { mutableStateOf(false) }
@@ -120,23 +128,49 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
             }
 
             if (command.running && !command.awaitingSudoPassword) {
-                Button(
-                    onClick = {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .navigationBarsPadding()
+                        .padding(end = 16.dp, bottom = 104.dp),
+                ) {
+                    Button(onClick = {
+                        inputTarget = vm.captureCommandInput(activeProjectId)
+                        if (inputTarget == null) {
+                            Toast.makeText(context, "Command input is not available yet.", Toast.LENGTH_SHORT).show()
+                        }
+                    }) { Text("Input") }
+                    Button(onClick = {
                         scope.launch {
                             val stopped = cancelActiveCommand()
                             if (!stopped) {
                                 Toast.makeText(context, "Active remote command was not found.", Toast.LENGTH_SHORT).show()
                             }
                         }
-                    },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .navigationBarsPadding()
-                        .padding(end = 16.dp, bottom = 104.dp),
-                ) {
-                    Text("Stop · Ctrl-C")
+                    }) { Text("Stop · Ctrl-C") }
                 }
             }
+        }
+    }
+
+    LaunchedEffect(command.running, command.awaitingSudoPassword) {
+        if (!command.running || command.awaitingSudoPassword) inputTarget = null
+    }
+    inputTarget?.takeIf { command.running && !command.awaitingSudoPassword && it.isActive }?.let { target ->
+        key(target) {
+            CommandInputDialog(
+                onSubmit = { reply ->
+                    inputTarget = null
+                    scope.launch {
+                        val sent = withContext(Dispatchers.IO) { target.sendLine(reply) }
+                        if (!sent) {
+                            Toast.makeText(context, "Input could not be sent. The command may have ended.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                onDismiss = { inputTarget = null },
+            )
         }
     }
 
@@ -164,6 +198,50 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
 }
 
 @Composable
+private fun CommandInputDialog(
+    onSubmit: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var reply by remember { mutableStateOf("") }
+    var hideInput by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Command input") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Send a reply to the running command. An empty reply sends Enter.")
+                OutlinedTextField(
+                    value = reply,
+                    onValueChange = { reply = it },
+                    label = { Text("Reply") },
+                    visualTransformation = if (hideInput) PasswordVisualTransformation() else VisualTransformation.None,
+                    keyboardOptions = if (hideInput) KeyboardOptions(keyboardType = KeyboardType.Password) else KeyboardOptions.Default,
+                    minLines = 2,
+                    maxLines = 5,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = hideInput, onCheckedChange = { hideInput = it })
+                    Text("Hide input")
+                }
+                Text(
+                    "PocketDev does not save your reply. The remote program may echo it in its output.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val value = reply
+                reply = ""
+                onSubmit(value)
+            }) { Text("Send") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
 private fun SudoPasswordDialog(
     onSubmit: (String) -> Unit,
     onCancel: () -> Unit,
@@ -181,6 +259,7 @@ private fun SudoPasswordDialog(
                     onValueChange = { password = it },
                     label = { Text("Password") },
                     visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     singleLine = true,
                 )
                 Text(
