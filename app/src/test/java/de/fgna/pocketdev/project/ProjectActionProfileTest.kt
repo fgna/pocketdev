@@ -84,4 +84,16 @@ class ProjectActionProfileTest {
         assertTrue(ProjectCommandBuilder.actionProfile(configured, listOf(profile)).supportsApk)
         assertEquals("./gradlew test", ProjectCommandBuilder.command(configured, "test", listOf(profile)))
     }
+
+    @Test fun unchangedProjectFollowsSharedOrderButExplicitReorderingStaysLocal() {
+        val shared = ActionProfileTemplates.dockerCompose.copy(id = "team-compose")
+        val initial = project(shared.id)
+        val unchanged = ProjectCommandBuilder.withEditedActions(initial, shared.actions, listOf(shared))
+        val locallyOrdered = ProjectCommandBuilder.withEditedActions(initial, shared.actions.reversed(), listOf(shared))
+        val updated = shared.copy(actions = shared.actions.drop(1) + shared.actions.first())
+        assertTrue(unchanged.customActions.isEmpty())
+        assertTrue(unchanged.actionOrder.isEmpty())
+        assertEquals(updated.actions.map { it.id }, ProjectCommandBuilder.availableActions(unchanged, listOf(updated)).map { it.id })
+        assertEquals(shared.actions.reversed().map { it.id }, ProjectCommandBuilder.availableActions(locallyOrdered, listOf(updated)).map { it.id })
+    }
 }

@@ -41,6 +41,18 @@ object ProjectCommandBuilder {
     fun availableActions(project: ProjectConfig, profiles: List<ActionProfile> = ActionProfileTemplates.all): List<ActionDefinition> =
         configuredActions(project, profiles).filter { it.enabled }
 
+    fun withEditedActions(project: ProjectConfig, actions: List<ActionDefinition>, profiles: List<ActionProfile> = ActionProfileTemplates.all): ProjectConfig {
+        actions.forEach(ActionProfileResolver::validate)
+        require(actions.map { it.id }.distinct().size == actions.size) { "Duplicate action IDs" }
+        val inherited = configuredActions(project.copy(customActions = emptyList(), actionOrder = emptyList()), profiles)
+        val byId = inherited.associateBy { it.id }
+        val order = actions.map { it.id }
+        return project.copy(
+            customActions = actions.filter { it != byId[it.id] },
+            actionOrder = if (order == inherited.map { it.id }) emptyList() else order,
+        )
+    }
+
     fun command(project: ProjectConfig, actionId: String, profiles: List<ActionProfile> = ActionProfileTemplates.all): String {
         val action = availableActions(project, profiles).firstOrNull { it.id == actionId }
             ?: throw IllegalArgumentException("Unknown project action: $actionId")

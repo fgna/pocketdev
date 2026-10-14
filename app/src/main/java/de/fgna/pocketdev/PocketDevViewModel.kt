@@ -248,11 +248,8 @@ class PocketDevViewModel(
             buildCommand = if (android) editor.actions.firstOrNull { it.id == "build" }?.command ?: editor.buildCommand else editor.buildCommand,
             githubRepository = editor.githubRepository.trim(), actionProfileId = editor.actionProfileId,
         )
-        val inherited = ProjectCommandBuilder.configuredActions(base, _state.value.actionProfiles).associateBy { it.id }
-        return base.copy(
-            customActions = editor.actions.filter { it != inherited[it.id] },
-            actionOrder = editor.actions.map { it.id },
-        ).also { ProjectCommandBuilder.validate(it, _state.value.actionProfiles) }
+        return ProjectCommandBuilder.withEditedActions(base, editor.actions, _state.value.actionProfiles)
+            .also { ProjectCommandBuilder.validate(it, _state.value.actionProfiles) }
     }
 
     fun saveProjectEditor() {
