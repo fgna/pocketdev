@@ -1,6 +1,8 @@
 package de.fgna.pocketdev.project
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProjectActionProfileTest {
@@ -35,5 +37,51 @@ class ProjectActionProfileTest {
     @Test(expected = IllegalArgumentException::class)
     fun unknownProfileIsRejected() {
         ProjectCommandBuilder.availableActions(project("unknown"))
+    }
+
+    @Test fun androidKeepsExistingProjectCommands() {
+        val old = project("android-gradle").copy(testCommand = "cd android && ./gradlew customTest", buildCommand = "./gradlew assembleRelease")
+        assertEquals(old.testCommand, ProjectCommandBuilder.command(old, "test"))
+        assertEquals(old.buildCommand, ProjectCommandBuilder.command(old, "build"))
+        assertTrue(ProjectCommandBuilder.actionProfile(old).supportsApk)
+        assertFalse(ProjectCommandBuilder.actionProfile(project()).supportsApk)
+    }
+
+    @Test fun blankLegacyCommandsStayDisabledUntilConfigured() {
+        val old = project("android-gradle").copy(testCommand = "", buildCommand = "")
+        assertEquals(listOf("git-status"), ProjectCommandBuilder.availableActions(old).map { it.id })
+    }
+
+    @Test fun reorderedAndDisabledActionsResolveWithoutChangingTemplate() {
+        val configured = project().copy(
+            customActions = listOf(ActionProfileTemplates.dockerCompose.actions.first { it.id == "start" }.copy(enabled = false)),
+            actionOrder = listOf("logs", "build", "status", "stop", "start"),
+        )
+        assertEquals(listOf("logs", "build", "status", "stop"), ProjectCommandBuilder.availableActions(configured).map { it.id })
+        assertEquals(5, ProjectCommandBuilder.configuredActions(configured).size)
+        assertTrue(ActionProfileTemplates.dockerCompose.actions.first { it.id == "start" }.enabled)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun disabledActionCannotBeExecutedById() {
+        val configured = project().copy(customActions = listOf(ActionDefinition("stop", "Stop", "docker compose stop", true, false)))
+        ProjectCommandBuilder.command(configured, "stop")
+    }
+
+    @Test fun sharedProfilesApplyToMultipleProjectsAndRespectLocalOverrides() {
+        val shared = ActionProfile("team-compose", "Team Compose", listOf(ActionDefinition("status", "Status", "docker compose ps")))
+        val a = project(shared.id)
+        val b = project(shared.id).copy(id = "b", customActions = listOf(ActionDefinition("status", "Local", "docker compose ps --all")))
+        val updated = shared.copy(actions = listOf(ActionDefinition("status", "New", "docker compose ps --format json")))
+        val profiles = ActionProfileTemplates.all + updated
+        assertEquals("docker compose ps --format json", ProjectCommandBuilder.command(a, "status", profiles))
+        assertEquals("docker compose ps --all", ProjectCommandBuilder.command(b, "status", profiles))
+    }
+
+    @Test fun customAndroidProfileRetainsApkCapability() {
+        val profile = ActionProfileTemplates.android.copy(id = "my-android", name = "My Android")
+        val configured = project(profile.id).copy(testCommand = "ignored legacy")
+        assertTrue(ProjectCommandBuilder.actionProfile(configured, listOf(profile)).supportsApk)
+        assertEquals("./gradlew test", ProjectCommandBuilder.command(configured, "test", listOf(profile)))
     }
 }

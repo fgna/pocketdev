@@ -9,6 +9,7 @@ data class ProjectConfig(
     val id: String = "",
     val actionProfileId: String = ActionProfileTemplates.android.id,
     val customActions: List<ActionDefinition> = emptyList(),
+    val actionOrder: List<String> = emptyList(),
 )
 
 enum class ProjectAction {
@@ -18,17 +19,44 @@ enum class ProjectAction {
 }
 
 object ProjectCommandBuilder {
-    fun availableActions(project: ProjectConfig): List<ActionDefinition> {
-        val profile = ActionProfileTemplates.find(project.actionProfileId)
+    fun actionProfile(project: ProjectConfig, profiles: List<ActionProfile> = ActionProfileTemplates.all): ActionProfile =
+        profiles.firstOrNull { it.id == project.actionProfileId }
             ?: throw IllegalArgumentException("Unknown action profile: ${project.actionProfileId}")
-        return ActionProfileResolver.resolve(profile, project.customActions)
+
+    fun configuredActions(project: ProjectConfig, profiles: List<ActionProfile> = ActionProfileTemplates.all): List<ActionDefinition> {
+        val profile = actionProfile(project, profiles)
+        val compatible = if (profile.id == ActionProfileTemplates.android.id) profile.copy(
+            actions = profile.actions.map { action ->
+                val legacy = when (action.id) {
+                    "test" -> project.testCommand
+                    "build" -> project.buildCommand
+                    else -> action.command
+                }
+                action.copy(command = legacy.ifBlank { action.command }, enabled = action.enabled && legacy.isNotBlank())
+            },
+        ) else profile
+        return ActionProfileResolver.resolve(compatible, project.customActions, project.actionOrder)
     }
 
-    fun command(project: ProjectConfig, actionId: String): String {
-        val action = availableActions(project).firstOrNull { it.id == actionId }
+    fun availableActions(project: ProjectConfig, profiles: List<ActionProfile> = ActionProfileTemplates.all): List<ActionDefinition> =
+        configuredActions(project, profiles).filter { it.enabled }
+
+    fun command(project: ProjectConfig, actionId: String, profiles: List<ActionProfile> = ActionProfileTemplates.all): String {
+        val action = availableActions(project, profiles).firstOrNull { it.id == actionId }
             ?: throw IllegalArgumentException("Unknown project action: $actionId")
         ActionProfileResolver.validate(action)
         return action.command.trim()
+    }
+
+    fun validate(project: ProjectConfig, profiles: List<ActionProfile> = ActionProfileTemplates.all) {
+        require(project.name.isNotBlank()) { "Project name is required" }
+        require(project.remotePath.startsWith("/") && project.remotePath != "/" && '\u0000' !in project.remotePath) {
+            "Use an absolute project directory other than /"
+        }
+        require(project.githubRepository.isBlank() || Regex("^[^/\\s]+/[^/\\s]+$").matches(project.githubRepository)) {
+            "GitHub repository must use owner/name format"
+        }
+        configuredActions(project, profiles)
     }
 
     const val CWD_MARKER_PREFIX = "__POCKETDEV_CWD__"

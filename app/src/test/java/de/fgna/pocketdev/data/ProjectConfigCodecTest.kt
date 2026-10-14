@@ -50,6 +50,25 @@ class ProjectConfigCodecTest {
         assertEquals(listOf(project), ProjectConfigCodec.decode(row))
     }
 
+    @Test fun legacyEightFieldAndFourValueActionsStillLoad() {
+        val oldActions = listOf("deploy", "Deploy", "printf 'old;|, command'", "true").joinToString(",", transform = ::encodeField)
+        val row = listOf("old", "Service", "/srv/service", "", "", "", "docker-compose", oldActions)
+            .joinToString("|", transform = ::encodeField)
+        val loaded = ProjectConfigCodec.decode(row).single()
+        assertEquals("docker-compose", loaded.actionProfileId)
+        assertEquals(listOf(ActionDefinition("deploy", "Deploy", "printf 'old;|, command'", true)), loaded.customActions)
+        assertEquals(emptyList<String>(), loaded.actionOrder)
+    }
+
+    @Test fun orderAndDisabledOverridesSurviveReload() {
+        val project = ProjectConfig(
+            id = "service", name = "Service", remotePath = "/srv/service", testCommand = "", buildCommand = "",
+            actionProfileId = "docker-compose", customActions = listOf(ActionDefinition("start", "Start", "docker compose up -d", false, false)),
+            actionOrder = listOf("logs", "start", "stop", "status", "build"),
+        )
+        assertEquals(listOf(project), ProjectConfigCodec.decode(ProjectConfigCodec.encode(listOf(project))))
+    }
+
     @Test
     fun emptyCollectionRoundTrips() {
         assertEquals(emptyList<ProjectConfig>(), ProjectConfigCodec.decode(ProjectConfigCodec.encode(emptyList())))

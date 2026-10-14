@@ -7,13 +7,19 @@ import androidx.lifecycle.viewModelScope
 import de.fgna.pocketdev.artifact.ArtifactDownloadState
 import de.fgna.pocketdev.artifact.SshArtifactRetriever
 import de.fgna.pocketdev.data.ProjectConfigRepository
+import de.fgna.pocketdev.data.ActionProfileRepository
 import de.fgna.pocketdev.data.SshProfileRepository
 import de.fgna.pocketdev.project.ProjectAction
 import de.fgna.pocketdev.project.ProjectCommandBuilder
 import de.fgna.pocketdev.project.ProjectConfig
 import de.fgna.pocketdev.project.ProjectProvisioning
+import de.fgna.pocketdev.project.ActionDefinition
+import de.fgna.pocketdev.project.ActionProfile
+import de.fgna.pocketdev.project.ActionProfileTemplates
+import de.fgna.pocketdev.project.ActionProfileResolver
 import de.fgna.pocketdev.ssh.AuthMode
 import de.fgna.pocketdev.ssh.CommandEvent
+import de.fgna.pocketdev.ssh.CommandInputHandle
 import de.fgna.pocketdev.ssh.CommandStateReducer
 import de.fgna.pocketdev.ssh.CommandUiState
 import de.fgna.pocketdev.ssh.GitSshAgent
@@ -26,6 +32,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.UUID
 
 data class ProfileEditorState(
     val host: String = "",
@@ -42,7 +49,8 @@ data class ProjectEditorState(
     val buildCommand: String = "./gradlew assembleDebug",
     val githubRepository: String = "",
     val actionProfileId: String = "android-gradle",
-    val customActions: List<de.fgna.pocketdev.project.ActionDefinition> = emptyList(),
+    val actions: List<ActionDefinition> = ActionProfileTemplates.android.actions,
+    val error: String? = null,
 )
 
 data class ProjectSessionState(
@@ -76,6 +84,7 @@ data class PocketDevState(
     val projectEditorOpen: Boolean = false,
     val projectEditorId: String? = null,
     val projectEditor: ProjectEditorState = ProjectEditorState(),
+    val actionProfiles: List<ActionProfile> = ActionProfileTemplates.all,
     val pendingHostKeyFingerprint: String? = null,
     val pendingHostKeyProjectId: String? = null,
     val gitKeyStatus: GitKeyStatus = GitKeyStatus.UNKNOWN,
@@ -102,11 +111,15 @@ class PocketDevViewModel(
 ) : AndroidViewModel(application) {
     private val repository = SshProfileRepository(application)
     private val projectRepository = ProjectConfigRepository(application)
+    private val actionProfileRepository = ActionProfileRepository(application)
     private val executor = SshjCommandExecutor()
     private val artifactRetriever = SshArtifactRetriever()
 
     private val _state = MutableStateFlow(loadInitialState())
     val state: StateFlow<PocketDevState> = _state.asStateFlow()
+
+    fun captureCommandInput(projectId: String): CommandInputHandle? =
+        if (_state.value.sessions[projectId]?.command?.running == true) executor.captureInput(projectId) else null
 
     init {
         refreshGitKeyStatus()
@@ -178,7 +191,7 @@ class PocketDevViewModel(
                     buildCommand = current.buildCommand,
                     githubRepository = current.githubRepository,
                     actionProfileId = current.actionProfileId,
-                    customActions = current.customActions,
+                    actions = runCatching { ProjectCommandBuilder.configuredActions(current, it.actionProfiles) }.getOrDefault(emptyList()),
                 ),
             )
         }
@@ -195,24 +208,74 @@ class PocketDevViewModel(
     fun closeProjectEditor() = updateState { it.copy(projectEditorOpen = false) }
 
     fun updateProjectEditor(transform: (ProjectEditorState) -> ProjectEditorState) =
-        updateState { it.copy(projectEditor = transform(it.projectEditor)) }
+        updateState { it.copy(projectEditor = transform(it.projectEditor).copy(error = null)) }
+
+    fun selectActionProfile(profileId: String) {
+        val state = _state.value
+        val editor = state.projectEditor
+        val project = ProjectConfig("", "/tmp", editor.testCommand, editor.buildCommand, actionProfileId = profileId)
+        val actions = runCatching { ProjectCommandBuilder.configuredActions(project, state.actionProfiles) }.getOrElse { return }
+        updateProjectEditor { it.copy(actionProfileId = profileId, actions = actions) }
+    }
+
+    fun saveActionProfile(name: String, replace: Boolean) {
+        val state = _state.value
+        val editor = state.projectEditor
+        runCatching {
+            require(name.isNotBlank()) { "Profile name is required" }
+            val source = state.actionProfiles.firstOrNull { it.id == editor.actionProfileId }
+                ?: error("Select an available action profile")
+            require(!replace || ActionProfileTemplates.find(source.id) == null) { "Copy a built-in profile before editing it" }
+            editor.actions.forEach(ActionProfileResolver::validate)
+            val saved = ActionProfile(
+                id = if (replace) source.id else "profile-${UUID.randomUUID()}",
+                name = name.trim(), actions = editor.actions, supportsApk = source.supportsApk,
+            )
+            val profiles = actionProfileRepository.upsert(saved)
+            updateState {
+                it.copy(actionProfiles = profiles, projectEditor = editor.copy(actionProfileId = saved.id, error = null))
+            }
+        }.onFailure { error -> updateState { it.copy(projectEditor = it.projectEditor.copy(error = error.message)) } }
+    }
+
+    private fun editedProject(editor: ProjectEditorState, id: String): ProjectConfig {
+        editor.actions.forEach(ActionProfileResolver::validate)
+        require(editor.actions.map { it.id }.distinct().size == editor.actions.size) { "Duplicate action IDs" }
+        val android = editor.actionProfileId == ActionProfileTemplates.android.id
+        val base = ProjectConfig(
+            id = id, name = editor.name.trim(), remotePath = editor.remotePath.trim(),
+            testCommand = if (android) editor.actions.firstOrNull { it.id == "test" }?.command ?: editor.testCommand else editor.testCommand,
+            buildCommand = if (android) editor.actions.firstOrNull { it.id == "build" }?.command ?: editor.buildCommand else editor.buildCommand,
+            githubRepository = editor.githubRepository.trim(), actionProfileId = editor.actionProfileId,
+        )
+        val inherited = ProjectCommandBuilder.configuredActions(base, _state.value.actionProfiles).associateBy { it.id }
+        return base.copy(
+            customActions = editor.actions.filter { it != inherited[it.id] },
+            actionOrder = editor.actions.map { it.id },
+        ).also { ProjectCommandBuilder.validate(it, _state.value.actionProfiles) }
+    }
 
     fun saveProjectEditor() {
         val state = _state.value
         val editor = state.projectEditor
-        val project = ProjectConfig(
-            id = state.projectEditorId.orEmpty(),
-            name = editor.name.trim(),
-            remotePath = editor.remotePath.trim(),
-            testCommand = editor.testCommand.trim(),
-            buildCommand = editor.buildCommand.trim(),
-            githubRepository = editor.githubRepository.trim(),
-            actionProfileId = editor.actionProfileId,
-            customActions = editor.customActions,
-        )
+        val previous = state.projects.firstOrNull { it.id == state.projectEditorId }
+        val previousSession = state.sessions[state.projectEditorId]
+        if (previousSession?.command?.running == true || previousSession?.artifact?.downloading == true) {
+            updateState { it.copy(projectEditor = editor.copy(error = "Wait for this project's command or download to finish before saving.")) }
+            return
+        }
+        val project = runCatching { editedProject(editor, state.projectEditorId.orEmpty()) }.getOrElse { error ->
+            updateState { it.copy(projectEditor = editor.copy(error = error.message)) }
+            return
+        }
         val collection = projectRepository.upsert(project, makeActive = true)
         updateState {
-            val sessions = ensureSessions(collection.projects, it.sessions)
+            var sessions = ensureSessions(collection.projects, it.sessions)
+            if (previous != null && previous.remotePath != project.remotePath) {
+                sessions[project.id]?.let { session ->
+                    sessions = sessions + (project.id to session.copy(workingDirectory = project.remotePath, artifact = ArtifactDownloadState()))
+                }
+            }
             it.copy(
                 projects = collection.projects,
                 project = displayProject(collection.activeProject, sessions),
@@ -243,6 +306,11 @@ class PocketDevViewModel(
 
     fun deleteCurrentProject() {
         val projectId = _state.value.project?.id ?: return
+        val session = _state.value.sessions[projectId]
+        if (session?.command?.running == true || session?.artifact?.downloading == true) {
+            updateState { it.copy(projectEditor = it.projectEditor.copy(error = "Stop the command or wait for the download before deleting this project.")) }
+            return
+        }
         val collection = projectRepository.delete(projectId)
         updateState {
             val sessions = ensureSessions(collection.projects, it.sessions - projectId)
@@ -262,14 +330,17 @@ class PocketDevViewModel(
     fun prepareProjectAction(actionId: String): Boolean {
         val activeId = _state.value.project?.id ?: return false
         val project = _state.value.projects.firstOrNull { it.id == activeId } ?: return false
-        val command = runCatching { ProjectCommandBuilder.command(project, actionId) }
+        if (_state.value.sessions[activeId]?.command?.running == true) return false
+        val command = runCatching { ProjectCommandBuilder.command(project, actionId, _state.value.actionProfiles) }
             .getOrElse { error ->
                 updateSession(project.id) { session ->
                     session.copy(command = session.command.copy(connectionError = error.message ?: "Project action is not configured."))
                 }
                 return false
             }
-        setCommand(command)
+        updateSession(project.id) { session ->
+            session.copy(workingDirectory = project.remotePath, command = session.command.copy(command = command))
+        }
         return true
     }
 
@@ -291,6 +362,7 @@ class PocketDevViewModel(
         val profile = _state.value.profile ?: return
         val activeId = _state.value.project?.id ?: return
         val project = _state.value.projects.firstOrNull { it.id == activeId } ?: return
+        if (!runCatching { ProjectCommandBuilder.actionProfile(project, _state.value.actionProfiles).supportsApk }.getOrDefault(false)) return
         val projectId = project.id
         val secret = repository.loadSecret()
         if (secret.isNullOrBlank()) {
@@ -784,6 +856,7 @@ class PocketDevViewModel(
             project.id to restoreSession(project.id, project.remotePath)
         }
         return PocketDevState(
+            actionProfiles = actionProfileRepository.load(),
             profile = stored?.profile,
             hasStoredSecret = stored?.hasSecret == true,
             projects = projectCollection.projects,

@@ -12,6 +12,103 @@ Use **tmux** on the host for long Codex sessions. The tmux server owns the termi
 - A Git worktree for the project, an appropriate branch, and permission to write a local run directory.
 - The host must remain powered on and awake. A host reboot, shutdown, or exhausted disk is not solved by tmux.
 
+## Proven native engineering-run route (Automated Engineering, 2026-10-12)
+
+**Use this route for the R2 engineering agent, not a bare `codex exec`.** PocketDev only opens the SSH session. The host-side project launcher manages a genuine Codex MCP agent, runtime qualification, native transactions, pinned original-R2 checkpoint, isolated state and independent SQLite readback. This workflow successfully executed both separate 3S and 4S development runs on the owner's Linux host; **engineering review was still required**.
+
+The observed host had `$HOME/.local/bin/codex` (Codex CLI 0.162.1), `/usr/bin/tmux` 3.4, and no `codex` on the default interactive `PATH`. Use the absolute Codex path, or set `PATH` explicitly. Do not reinstall Codex merely because `command -v codex` is empty. Verify `test -x "$HOME/.local/bin/codex"` and `"$HOME/.local/bin/codex" --version`.
+
+The following is the **observed 4S pattern**. It depends on the named source branch, qualification scripts, sealed checkpoint and checksum being present and valid **on this specific host**. The hash is an identity assertion for that historical checkpoint, not a reusable hash for a newly generated checkpoint. Do not guess or substitute another hash. This starts a *new* independent run; it does **not** continue or alter the original run.
+
+```bash
+set -euo pipefail
+
+REPO="$HOME/projects/automated-engineering"
+RUN="$HOME/.local/state/drone-4s-$(date -u +%Y%m%dT%H%M%SZ)"
+SESSION="drone4s-$(date +%s)"
+CODEX="$HOME/.local/bin/codex"
+CHECKPOINT="$HOME/.local/state/r2-sealed-checkpoint-20261011.json"
+SEALED_RUN="$HOME/.local/state/rehearsal7-context-20261011T154053Z/platform"
+EXPECTED_SHA256="9d06f70691ca96b3825ccde7b6391b62356491c42b30adfc6c2aa91489582992"
+
+test -x "$CODEX"
+test -f "$CHECKPOINT"
+test -d "$SEALED_RUN"
+printf '%s  %s\n' "$EXPECTED_SHA256" "$CHECKPOINT" | sha256sum -c -
+git -C "$REPO" fetch origin
+mkdir -p "$RUN"
+git -C "$REPO" worktree add --detach "$RUN/worktree" \
+  origin/feat/314-native-review-request
+
+# Keep the 4S-specific agent assignment in a separate, auditable run prompt.
+# The original executed assignment is in the run's modified
+# docs/planning/rehearsal7-codex-agent-run.md. Do not silently reuse it
+# for a different goal or overwrite any prior run.
+cat >> "$RUN/worktree/docs/planning/rehearsal7-codex-agent-run.md" <<'PROMPT'
+
+ADDITIONAL ENGINEERING ASSIGNMENT — 4S INDEPENDENT DEVELOPMENT
+Develop the 4S quadcopter using the original sealed R2 checkpoint.
+Preserve all 15 unchanged requirements. Do not import the completed 3S run.
+Research exact motor, propeller, ESC and battery alternatives and traceable
+manufacturer/supplier data. Compute bounded mass, thrust, energy, endurance
+and costs where inputs permit. Submit changes only through native MCP
+proposals, validation and policy. Freeze accepted baselines.
+Keep EVIDENCE_PENDING / DEFER and selection_authorized=false if evidence
+does not support a formal decision. Do not claim flightworthiness or release.
+PROMPT
+
+cat > "$RUN/start.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+RUN="$(cd "$(dirname "$0")" && pwd)"
+cd "$RUN/worktree"
+export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+export PYTHONDONTWRITEBYTECODE=1
+trap 'echo "$?" > "$RUN/exit-code.txt"' EXIT
+python -u scripts/qualify_platform_r2_review.py "$RUN/qualification.json"
+python -u scripts/run_rehearsal7_codex.py \
+  --run "$RUN/platform" \
+  --qualification "$RUN/qualification.json" \
+  --sealed-run "$HOME/.local/state/rehearsal7-context-20261011T154053Z/platform" \
+  --checkpoint "$HOME/.local/state/r2-sealed-checkpoint-20261011.json" \
+  --checkpoint-sha256 9d06f70691ca96b3825ccde7b6391b62356491c42b30adfc6c2aa91489582992 \
+  --codex "$HOME/.local/bin/codex" \
+  --host-seconds 3300 --max-seconds 3600
+SH
+
+chmod 700 "$RUN/start.sh"
+tmux new-session -d -s "$SESSION" \
+  "bash '$RUN/start.sh' > '$RUN/run.log' 2>&1"
+printf '%s\n' "$RUN" > "$HOME/.local/state/drone-4s-latest.txt"
+echo "Started: $SESSION; run: $RUN"
+```
+
+To inspect the result **without touching the engineering database**:
+
+```bash
+RUN="$(cat "$HOME/.local/state/drone-4s-latest.txt")"
+echo "=== TMUX ==="
+tmux list-sessions 2>/dev/null || true
+echo "=== EXIT ==="
+cat "$RUN/exit-code.txt" 2>/dev/null || echo "Still running or interrupted"
+echo "=== PLATFORM RESULT ==="
+python3 -m json.tool "$RUN/platform/rehearsal7-result.json" 2>/dev/null || true
+echo "=== LOG ==="
+tail -n 45 "$RUN/run.log" 2>/dev/null || true
+echo "=== SOURCE STATUS ==="
+git -C "$RUN/worktree" status --short
+```
+
+**Observed owner-host outcomes:** 3S and 4S runs exited with code 0, platform qualification PASS, independent readback PASS, 24 accepted objects and 13 baselines each. Both ended at `AGENT_EXITED_REVIEW_REQUIRED`: DEV-ARCH SATISFIED, DEV-TRADE ELIGIBLE with `formal-trades-complete` unmet, DEV-SEL BLOCKED. These are not successful architecture selection or physical validation. The 3S and 4S runs must remain independent; a later formal trade must explicitly reconcile their separately frozen baselines and object identities.
+
+### Why direct Codex invocation failed on this host
+
+A separate `codex exec --sandbox workspace-write --json -` run returned process exit 0 but **performed no edits or tests**. The tool sandbox reported `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`. On that host, `unshare --user --map-root-user true` also failed to write `/proc/self/uid_map`; `/proc/sys/kernel/apparmor_restrict_unprivileged_userns` was `1`. This supports an AppArmor / user-namespace restriction, not a defect in the engineering method.
+
+The verified engineering route above uses the **project's native MCP runner**. It is not evidence that all direct CLI sandboxes are functional. Do not globally disable AppArmor, casually choose `danger-full-access`, or treat `exit-code=0` as completed engineering. For ordinary non-platform Codex tasks, diagnose the sandbox separately and retain least privilege.
+
+---
+
 ## Prepare a durable, reviewable task
 
 On the host, switch to the **existing** project branch deliberately. Check `git status --short` first. Do not reset or clean away ongoing work. Put the Codex instruction in a file, rather than embedding a long prompt in a mobile text field.

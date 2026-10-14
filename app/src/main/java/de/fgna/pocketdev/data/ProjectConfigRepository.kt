@@ -2,11 +2,6 @@ package de.fgna.pocketdev.data
 
 import android.content.Context
 import de.fgna.pocketdev.project.ProjectConfig
-import de.fgna.pocketdev.project.ActionDefinition
-import de.fgna.pocketdev.project.ActionProfileTemplates
-import de.fgna.pocketdev.project.ActionProfileResolver
-import java.nio.charset.StandardCharsets
-import java.util.Base64
 import java.util.UUID
 
 data class ProjectCollection(
@@ -95,71 +90,4 @@ class ProjectConfigRepository(context: Context) {
         const val KEY_ACTIVE_PROJECT_ID = "activeProjectId"
         const val KEY_MIGRATED = "legacyMigrated"
     }
-}
-
-internal object ProjectConfigCodec {
-    private val encoder = Base64.getUrlEncoder().withoutPadding()
-    private val decoder = Base64.getUrlDecoder()
-
-    fun encode(projects: List<ProjectConfig>): String = projects.joinToString("\n") { project ->
-        listOf(
-            project.id,
-            project.name,
-            project.remotePath,
-            project.testCommand,
-            project.buildCommand,
-            project.githubRepository,
-            project.actionProfileId,
-            encodeActions(project.customActions),
-        ).joinToString("|", transform = ::encodeField)
-    }
-
-    fun decode(value: String): List<ProjectConfig> = value
-        .lineSequence()
-        .filter { it.isNotBlank() }
-        .mapNotNull(::decodeProject)
-        .toList()
-
-    private fun decodeProject(row: String): ProjectConfig? = runCatching {
-        val fields = row.split('|').map(::decodeField)
-        if (fields.size != 6 && fields.size != 8 || fields[0].isBlank()) return@runCatching null
-        ProjectConfig(
-            id = fields[0],
-            name = fields[1],
-            remotePath = fields[2],
-            testCommand = fields[3],
-            buildCommand = fields[4],
-            githubRepository = fields[5],
-            actionProfileId = if (fields.size == 8) fields[6] else ActionProfileTemplates.android.id,
-            customActions = if (fields.size == 8) decodeActions(fields[7]) else emptyList(),
-        )
-    }.getOrNull()
-
-    private fun encodeActions(actions: List<ActionDefinition>): String {
-        actions.forEach(ActionProfileResolver::validate)
-        require(actions.map { it.id }.distinct().size == actions.size) { "Duplicate action IDs" }
-        return actions.joinToString(";") { action ->
-            listOf(action.id, action.label, action.command, action.requiresConfirmation.toString())
-                .joinToString(",", transform = ::encodeField)
-        }
-    }
-
-    private fun decodeActions(value: String): List<ActionDefinition> {
-        if (value.isEmpty()) return emptyList()
-        val actions = value.split(";").map { row ->
-            val fields = row.split(",").map(::decodeField)
-            require(fields.size == 4) { "Invalid action entry" }
-            require(fields[3] == "true" || fields[3] == "false") { "Invalid confirmation flag" }
-            ActionDefinition(fields[0], fields[1], fields[2], fields[3].toBoolean())
-                .also(ActionProfileResolver::validate)
-        }
-        require(actions.map { it.id }.distinct().size == actions.size) { "Duplicate action IDs" }
-        return actions
-    }
-
-    private fun encodeField(value: String): String =
-        encoder.encodeToString(value.toByteArray(StandardCharsets.UTF_8))
-
-    private fun decodeField(value: String): String =
-        String(decoder.decode(value), StandardCharsets.UTF_8)
 }
