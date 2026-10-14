@@ -284,7 +284,10 @@ class PocketDevViewModel(
                 projectEditorId = null,
             )
         }
-        collection.activeProject?.id?.let(::refreshGitBranch)
+        collection.activeProject?.id?.let { projectId ->
+            _state.value.sessions[projectId]?.let { persistSession(projectId, it) }
+            refreshGitBranch(projectId)
+        }
     }
 
     fun selectProject(projectId: String) {
