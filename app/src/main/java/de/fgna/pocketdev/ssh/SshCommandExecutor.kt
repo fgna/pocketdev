@@ -30,6 +30,7 @@ interface SshCommandExecutor {
     ): Flow<CommandEvent>
 
     fun sendInput(commandId: String, text: String): Boolean = false
+    fun captureInput(commandId: String): CommandInputHandle? = null
     fun cancel(commandId: String): Boolean = false
 }
 
@@ -45,6 +46,8 @@ class SshjCommandExecutor : SshCommandExecutor {
 
     override fun sendInput(commandId: String, text: String): Boolean = sendInputTo(commandId, text)
 
+    override fun captureInput(commandId: String): CommandInputHandle? = captureInputFor(commandId)
+
     override fun cancel(commandId: String): Boolean = cancelMatching(commandId)
 
     override fun execute(
@@ -59,6 +62,7 @@ class SshjCommandExecutor : SshCommandExecutor {
         var session: Session? = null
         var remote: Session.Command? = null
         var writer: BufferedWriter? = null
+        var completion: CommandEvent? = null
         var discoveredFingerprint: String? = null
         val controlKey = commandId ?: command
         send(CommandEvent.Connecting)
@@ -130,9 +134,11 @@ class SshjCommandExecutor : SshCommandExecutor {
 
             if (stdinText != null) {
                 withContext(Dispatchers.IO) {
-                    writer!!.write(stdinText)
-                    writer!!.newLine()
-                    writer!!.flush()
+                    synchronized(writer!!) {
+                        writer!!.write(stdinText)
+                        writer!!.newLine()
+                        writer!!.flush()
+                    }
                 }
             }
 
@@ -151,15 +157,15 @@ class SshjCommandExecutor : SshCommandExecutor {
             stdoutJob.join()
             stderrJob.join()
             val exitCode = if (cancelledCommands.contains(controlKey)) 130 else remote!!.exitStatus ?: -1
-            trySend(CommandEvent.Completed(exitCode))
+            completion = CommandEvent.Completed(exitCode)
         } catch (error: Exception) {
             if (cancelledCommands.contains(controlKey)) {
-                trySend(CommandEvent.Completed(130))
+                completion = CommandEvent.Completed(130)
             } else {
-                trySend(CommandEvent.ConnectionFailed(error.message ?: error::class.java.simpleName))
+                completion = CommandEvent.ConnectionFailed(error.message ?: error::class.java.simpleName)
             }
         } finally {
-            activeCommands.remove(controlKey)
+            retireInput(controlKey)
             if (commandId != null) {
                 activeUserCommands.remove(controlKey)
                 notifyActiveCommandListeners()
@@ -175,6 +181,9 @@ class SshjCommandExecutor : SshCommandExecutor {
                 }
             }
         }
+        // Publish the terminal state only after control handles and resources are retired.
+        // A new run in the same project cannot be removed by the previous run's cleanup.
+        completion?.let { trySend(it) }
     }
 
     private fun interactiveSudoCommand(command: String): String = """
@@ -223,33 +232,13 @@ class SshjCommandExecutor : SshCommandExecutor {
     }
 
     private fun streamInteractiveStderr(input: InputStream, emit: (CommandEvent) -> Unit) {
-        var pending = ""
-        stream(input) { chunk ->
-            pending += chunk
-            while (true) {
-                val markerIndex = pending.indexOf(SUDO_PROMPT)
-                if (markerIndex >= 0) {
-                    val before = pending.substring(0, markerIndex)
-                    if (before.isNotEmpty()) emit(CommandEvent.Output(OutputStreamKind.STDERR, before))
-                    emit(CommandEvent.SudoPasswordRequired)
-                    pending = pending.substring(markerIndex + SUDO_PROMPT.length)
-                    continue
-                }
-
-                val keep = minOf(SUDO_PROMPT.length - 1, pending.length)
-                val flushLength = pending.length - keep
-                if (flushLength > 0) {
-                    emit(CommandEvent.Output(OutputStreamKind.STDERR, pending.substring(0, flushLength)))
-                    pending = pending.substring(flushLength)
-                }
-                break
-            }
-        }
-        if (pending.isNotEmpty()) emit(CommandEvent.Output(OutputStreamKind.STDERR, pending))
+        val parser = SudoPromptParser(emit)
+        stream(input, parser::accept)
+        parser.finish()
     }
 
     companion object {
-        private const val SUDO_PROMPT = "POCKETDEV_SUDO_PASSWORD_REQUIRED"
+        private const val SUDO_PROMPT = SudoPromptParser.MARKER
         private val activeCommands = ConcurrentHashMap<String, ActiveCommand>()
         private val activeUserCommands = ConcurrentHashMap.newKeySet<String>()
         private val activeCommandListeners = ConcurrentHashMap.newKeySet<(Int) -> Unit>()
@@ -287,19 +276,24 @@ class SshjCommandExecutor : SshCommandExecutor {
             activeCommandListeners.forEach { listener -> runCatching { listener(count) } }
         }
 
-        fun sendInputTo(commandHint: String, text: String): Boolean {
-            val entry = findActive(commandHint) ?: return false
-            val active = entry.value
-            val success = runCatching {
-                synchronized(active.writer) {
-                    active.writer.write(text)
-                    active.writer.newLine()
-                    active.writer.flush()
-                }
-            }.isSuccess
-            if (success) active.emit(CommandEvent.SudoPasswordSubmitted)
-            return success
+        private fun retireInput(commandId: String) {
+            val active = activeCommands[commandId] ?: return
+            synchronized(active.writer) {
+                activeCommands.remove(commandId, active)
+            }
         }
+
+        fun captureInputFor(commandId: String): CommandInputHandle? {
+            val active = activeCommands[commandId] ?: return null
+            return CommandInputHandle(
+                writer = active.writer,
+                isCurrent = { activeCommands[commandId] === active && !cancelledCommands.contains(commandId) },
+                onSent = { active.emit(CommandEvent.SudoPasswordSubmitted) },
+            )
+        }
+
+        fun sendInputTo(commandId: String, text: String): Boolean =
+            captureInputFor(commandId)?.sendLine(text) ?: false
 
         fun cancelMatching(commandHint: String): Boolean {
             val entry = findActive(commandHint) ?: return false
