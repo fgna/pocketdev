@@ -8,7 +8,7 @@ git pull --ff-only
 bash scripts/start-automated-engineering-codex.sh
 ```
 
-Das startet einen **Codex-Entwicklungsagenten**, der anhand von `docs/prompts/automated-engineering-e2e.txt` den echten nativen E2E-Launcher ermitteln und ausführen soll. Der tmux-Wrapper ist **nicht** selbst der native Engineering-E2E-Launcher.
+Das startet einen **äußeren Codex-Operator**, der anhand von `docs/prompts/automated-engineering-e2e.txt` den echten nativen E2E-Launcher ermitteln und ausführen soll. Die fachlichen Arbeitsanweisungen für den inneren Codex-MCP-Engineering-Agenten stammen aus der **autoritativen nativen Engineering-Umgebung**, siehe [Agent- und Instruktionsvertrag](automated-engineering-agent-contract.md). Der tmux-Wrapper ist **nicht** selbst der native Engineering-E2E-Launcher.
 
 Voraussetzungen: Host-Zugang über PocketDev SSH; tmux; ausführbares `~/.local/bin/codex`; Git-Repos unter `~/projects/PocketDev` und `~/projects/automated-engineering`. Mit `AE_REPO`, `CODEX_BIN`, `AE_RUN_ROOT`, `AE_TASK_FILE` lassen sich Pfade anpassen, ohne das Skript zu ändern.
 
