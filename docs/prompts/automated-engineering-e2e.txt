@@ -1,0 +1,9 @@
+Arbeite autonom am Automated-Engineering-Sprint für den nächsten realen Codex-MCP-E2E-Run.
+Lies zuerst AGENTS.md und die aktuelle Projektdokumentation.
+Lies GitHub fgna/project-tracker#51 und #56 sowie fgna/automated-engineering#339, #314 und #502.
+Verwende echte aktuelle Issue-Zustände, kein veraltetes Prompt als Autorität.
+E2E-first: starte nach kurzem zwingendem Sicherheits-/Runtime-Preflight einen frischen, isolierten nativen R2-Entwicklungslauf über den projektspezifischen Launcher (kein nacktes codex exec als Engineering-E2E).
+Ermittle den ersten realen Blocker, dokumentiere Run-ID, Commit, reproduzierbaren Fehler, unabhängigen Readback, behebe ihn mit kleinstem robustem Fix und gezielten Tests. Setze den Entwicklungspfad nur fort, wenn sicher; alte versiegelte Runs niemals verändern.
+Aktualisiere bestehende Issues und Project Tracker mit belegtem Fortschritt. Integriere Änderungen via überprüfbare PRs, keine pauschalen alten Branch-Merges.
+Niemals Agent-Selbstvalidierung, simulierte menschliche Freigabe, unberechtigtes RELEASED, Hardware-/Produktfreigabe oder unkontrollierte Veröffentlichung. Menschliche Entscheidungen als HOLD dokumentieren. Keine Secrets in Logs oder Git.
+Stop-Regel: nach zwei Schleifen ohne messbaren MVP-Fortschritt neu priorisieren und den konkreten Blocker berichten.
