@@ -30,3 +30,10 @@ Der äußere Codex läuft auf ausdrücklichen Wunsch mit Full Access auf einem v
 
 ## Prüfpunkte
 Vor einem nativen Run: gültiger gepinnter Launcher, frischer isolierter State, qualifizierte Runtime, sicherer Stop/Archivierung. Danach: genaue native Aufgabenquelle, Events/Fehlercodes, akzeptierte Objekte/Baselines, Method-Readback, Terminalisierung, SHA-geprüftes Paket und – wenn möglich – Website-Eintrag. Änderungen an historischen Daten sind verboten.
+
+## Zielentscheidung (16.10.2026): Kein äußerer Codex-Operator im Endprodukt
+Die bisherige Operator-über-Agent-Struktur ist **nur ein Übergangsweg für Debugging und Sprintarbeit**. Der Zielpfad lautet: PocketDev → vertrauenswürdiger nativer Engineering-Launcher → genau ein Codex-MCP-Engineering-Agent bis zum nächsten Human Gate. Die Plattform erzeugt pro Etappe aus dem aktuellen akzeptierten Zustand einen individuellen, versionierten Auftrag mit Projekt-/Baseline-Bindung, zulässigen Aktivitäten, MCP-Zugriff und klaren Stopbedingungen. Ein statischer Sprint-Prompt darf diese Autorität nicht übernehmen.
+
+**Etappen-Vertrag:** Der Agent arbeitet alle aktuell zulässigen Schritte autonom ab, bis (a) eine authentifizierte menschliche Entscheidung erforderlich ist, (b) ein nicht autonom lösbarer Blocker eintritt, (c) Run-/Ressourcenlimits erreicht sind oder (d) die definierte Engineering-Etappe abgeschlossen ist. Dann Zustand konsistent versiegeln/archivieren, unabhängigen Readback liefern, Website/Review aktualisieren und einen expliziten terminalen oder WAITING_FOR_HUMAN-Zustand ausweisen. Keine künstlich als NO_GO umetikettierte normale Wartephase; keine automatische Genehmigung. Nach echter Human-Entscheidung erstellt die Plattform einen neuen Auftrag aus dem neuen Zustand.
+
+**Implementierung offen:** Existierende native Runner/Prompt-Erzeugung auf main untersuchen und die kleinste direkte Launcher-Route als Delivery-Issue unter #339/#314 abnehmen. Das PocketDev-Skript bleibt vorerst ausdrücklich ein Operator-Übergang, nicht der finale Produktstart.
