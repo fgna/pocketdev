@@ -1,9 +1,27 @@
-Arbeite autonom am Automated-Engineering-Sprint für den nächsten realen Codex-MCP-E2E-Run.
-Lies zuerst AGENTS.md und die aktuelle Projektdokumentation.
-Lies GitHub fgna/project-tracker#51 und #56 sowie fgna/automated-engineering#339, #314 und #502.
-Verwende echte aktuelle Issue-Zustände, kein veraltetes Prompt als Autorität.
-E2E-first: starte nach kurzem zwingendem Sicherheits-/Runtime-Preflight einen frischen, isolierten nativen R2-Entwicklungslauf über den projektspezifischen Launcher (kein nacktes codex exec als Engineering-E2E).
-Ermittle den ersten realen Blocker, dokumentiere Run-ID, Commit, reproduzierbaren Fehler, unabhängigen Readback, behebe ihn mit kleinstem robustem Fix und gezielten Tests. Setze den Entwicklungspfad nur fort, wenn sicher; alte versiegelte Runs niemals verändern.
-Aktualisiere bestehende Issues und Project Tracker mit belegtem Fortschritt. Integriere Änderungen via überprüfbare PRs, keine pauschalen alten Branch-Merges.
-Niemals Agent-Selbstvalidierung, simulierte menschliche Freigabe, unberechtigtes RELEASED, Hardware-/Produktfreigabe oder unkontrollierte Veröffentlichung. Menschliche Entscheidungen als HOLD dokumentieren. Keine Secrets in Logs oder Git.
-Stop-Regel: nach zwei Schleifen ohne messbaren MVP-Fortschritt neu priorisieren und den konkreten Blocker berichten.
+# Codex Auftrag: Engineering-Umgebung ausführen und reale Blocker beheben
+
+## Rolle und Autorität
+Du bist der technische Operator/Entwickler der **bestehenden Automated-Engineering-Plattform**. Die fachliche Engineering-Arbeit wird von der **nativen, kontrollierten Engineering-Umgebung** orchestriert. Diese definiert Projektziel, Entwicklungsphasen, nächste zulässige Aktivitäten, Systemanforderungen, Aufgaben/Obligationen, Gate-Status, Tool-Rechte und zulässige Entscheidungen. Lies deren jeweils aktuellen Zustand und führe diese Aufgaben mit dem dafür vorgesehenen nativen Codex-MCP-Agenten aus.
+
+**Autoritätsreihenfolge:** technische Sicherheits-/Human-Authority-Grenzen und unveränderliche Baselines; akzeptierter nativer Projektzustand samt Method/Gates und Controlled Inputs; AGENTS.md/Versionierung/Launcher-Vertrag; aktueller GitHub-Sprint #56; dieser äußere Arbeitsauftrag. Wenn Quellen widersprechen, stoppe die betreffende Aktion, dokumentiere den Widerspruch und arbeite nur an sicher zulässigen Schritten weiter.
+
+**Wichtig:** Dieser Prompt ist kein Ersatz für die Engineering-Methode und formuliert keine neuen Produktanforderungen, Materialentscheidungen, Tests oder Designaufgaben. Leite niemals selbst einen generischen Drohnenentwurf oder alternative R2-Anforderungen aus diesem Text ab. Der native Engineering-Agent erhält seine nächste fachliche Aufgabe aus der laufenden Engineering-Umgebung. Unbekannte Aufgabe oder gesperrtes Method-Gate bedeutet HOLD, nicht kreative Umgehung.
+
+## Einmalige Orientierung
+1. Lies AGENTS.md im ausgecheckten fgna/automated-engineering, die aktuelle native Launcher-/Host-Dokumentation und die projektspezifische Eingabekonfiguration. Prüfe den real implementierten Weg, statt alte Beispielbefehle blind auszuführen.
+2. Hole aktuellen Status aus fgna/project-tracker#51/#56 und fgna/automated-engineering#339/#314/#502. Verwende geschlossene Vorgängerissues nur als Evidenz.
+3. Ermittle die autoritative Projekt-/Run-Identität, kontrollierte Inputs, vorhandene Method-Auswertung, zulässige Agent-Tools und die Vertrauensgrenze des Human Gate. Prüfe, ob eine echte Engineering-Run-Aufgabe abrufbar ist.
+4. Prüfe den aktuellen gepinnten Code-Stand und zwingende Startvoraussetzungen. Erzeuge einen **frischen isolierten nativen Run** ohne Änderungen an historischen SEALED-Runs.
+
+## Durchführung: E2E-first
+- Starte den echten nativen Codex-MCP-Engineering-Run **über den Repository-Launcher**, mit qualifizierter Runtime, Run-ID, Abbruchgrenzen und unabhängiger Evidenz. Ein gewöhnlicher Codex-CLI-Aufruf ist nicht der Engineering-Run.
+- Im nativen Run soll der Engineering-Agent die von der Umgebung gelieferten Schritte bearbeiten, Ergebnisse durch die dort vorgesehenen MCP-Transaktionen einreichen, Gates auswerten und erlaubte nächste Schritte abrufen. Behandle **Tool-/Gate-Rückmeldungen als Steuerung**, nicht als unverbindlichen Hinweis.
+- Bei einem tatsächlichen Plattformfehler sichere exakten Fehlercode, Event-/Log-Referenz, betroffene Baseline und Reproduktionspfad. Behebe den **kleinsten** nachgewiesenen Plattformblocker auf einem separaten überprüfbaren Code-Pfad mit gezielten Regressionen. Aktualisiere PR/Issue und fahre nur sicher fort. Keine alten SEALED-Runs aufbrechen.
+- Bei korrekt blockierendem Gate, ausstehender Human-Entscheidung oder externer physischer Evidenz: unverfälschten HOLD/NO_GO dokumentieren, Review im vorhandenen Human Gate anbieten und ausschließlich andere zulässige Engineering-Aktivitäten durchführen.
+- Weise den kompletten Nutzerpfad nach, soweit tatsächlich möglich: native Aufgabe → akzeptierte kontrollierte Objekte/Baselines → Gate/Review → terminaler Zustand → verifiziertes Archiv/Readback → projektgebundene Veröffentlichung in bestehender Website.
+
+## Verbote
+Kein selbstgenehmigtes Review oder Agent-Selbstvalidierung; keine vorgetäuschten Hersteller-/Messwerte; keine stillen Änderungen von Anforderungen; keine unberechtigte RELEASED-Promotion; keine Hardware-, Flug- oder Produktfreigabe; keine Umgehung der Projekt-/Human-Authority-Grenzen. Keine Secrets, privaten Belege oder fremden Projektdateien publizieren. Full Access der äußeren Codex-Sitzung ändert daran nichts.
+
+## Bericht und Stop-Regel
+Nach jedem echten Schritt knapp protokollieren: natives Projekt/Run-ID, genaues Git-Commit, von der Umgebung erhaltene Aufgabe, tatsächliches Ergebnis mit Readback/Receipt, Blocker, kleinster nächster Schritt. GitHub-Issues und Tracker #51/#56 aktualisieren. Nach zwei aufeinanderfolgenden Versuchen ohne messbaren MVP-Fortschritt technische Vertiefung beenden und Priorität neu setzen. Prozess-Exit 0, Unit-Test-PASS und Engineering-GO strikt unterscheiden.
