@@ -536,6 +536,20 @@ class PocketDevViewModel(
         updateSession(projectId) { it.copy(command = it.command.copy(command = command)) }
     }
 
+    fun prepareProjectHome(): Boolean {
+        val project = _state.value.project ?: return false
+        val session = _state.value.sessions[project.id] ?: return false
+        if (session.command.running) return false
+        // Always start at the configured project root, never a remembered branch/worktree cwd.
+        updateSession(project.id) {
+            it.copy(
+                workingDirectory = project.remotePath,
+                command = it.command.copy(command = "pwd"),
+            )
+        }
+        return true
+    }
+
     fun runCommand() {
         val projectId = _state.value.project?.id ?: return
         runCommandFor(projectId)

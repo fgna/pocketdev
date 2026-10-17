@@ -52,7 +52,6 @@ import de.fgna.pocketdev.artifact.SshArtifactRetriever
 import de.fgna.pocketdev.diagnostics.DiagnosticDraftBuilder
 import de.fgna.pocketdev.diagnostics.DiagnosticIssueDraft
 import de.fgna.pocketdev.project.ProjectAction
-import de.fgna.pocketdev.project.ProjectCommandBuilder
 import de.fgna.pocketdev.project.ProjectConfig
 import de.fgna.pocketdev.ssh.AuthMode
 import de.fgna.pocketdev.ui.PocketDevCompactMeta
@@ -110,6 +109,7 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                 onOpenArtifact = { path -> openApk(context, path) },
                 onCommandChange = vm::setCommand,
                 onRun = runWithLanPermission,
+                onProjectHome = { if (vm.prepareProjectHome()) runWithLanPermission() },
                 onCopy = { text -> copyText(context, text) },
                 onUnlockGitKey = vm::openGitKeyUnlock,
                 onRefreshGitKey = vm::refreshGitKeyStatus,
@@ -221,6 +221,7 @@ private fun PocketDevHome(
     onOpenArtifact: (String) -> Unit,
     onCommandChange: (String) -> Unit,
     onRun: () -> Unit,
+    onProjectHome: () -> Unit,
     onCopy: (String) -> Unit,
     onUnlockGitKey: () -> Unit,
     onRefreshGitKey: () -> Unit,
@@ -360,11 +361,7 @@ private fun PocketDevHome(
                         PocketDevSectionLabel("Command", modifier = Modifier.weight(1f))
                         TextButton(onClick = { onCommandChange("pwd") }, enabled = !busy) { Text("pwd") }
                         TextButton(
-                            onClick = {
-                                val remotePath = project?.remotePath ?: return@TextButton
-                                onCommandChange("cd ${ProjectCommandBuilder.shellQuote(remotePath)}")
-                                onRun()
-                            },
+                            onClick = onProjectHome,
                             enabled = project != null && profile != null && state.hasStoredSecret && !busy,
                         ) { Text("cd Project home") }
                         TextButton(onClick = { onCommandChange("") }, enabled = !busy && execution.command.isNotEmpty()) { Text("Clear") }
