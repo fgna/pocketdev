@@ -627,11 +627,14 @@ class PocketDevViewModel(
             it.copy(command = it.command.copy(running = true, stdout = "", stderr = "", exitCode = null, connectionError = null))
         }
 
+        val executedCommand = if (de.fgna.pocketdev.ssh.CodexProgress.enabled(commandText)) {
+            codexLoggedCommand(projectCommand)
+        } else projectCommand
         viewModelScope.launch {
             executor.execute(
                 profile = profile,
                 secret = secret,
-                command = GitSshAgent.wrap(projectCommand),
+                command = GitSshAgent.wrap(executedCommand),
                 commandId = projectId,
             ).collect { event ->
                 if (event is CommandEvent.HostKeyTrustRequired) {
@@ -665,10 +668,24 @@ class PocketDevViewModel(
         }
     }
 
+
+    /** Keep private, unmodified stdout and stderr logs on the SSH host. */
+    private fun codexLoggedCommand(command: String): String {
+        val script = listOf(
+            "umask 077",
+            "dir=\"\$HOME/.local/state/pocketdev/jobs\"",
+            "mkdir -p \"\$dir\" || exit 1",
+            "prefix=\"\$dir/\$(date +%Y%m%dT%H%M%S)-\$\$\"",
+            "printf 'POCKETDEV_JOB_LOG:%s\\n' \"\$prefix\"",
+            "exec > >(tee \"\$prefix.stdout\") 2> >(tee \"\$prefix.stderr\" >&2)",
+            command,
+        ).joinToString("\n")
+        return "bash -c " + ProjectCommandBuilder.shellQuote(script)
+    }
+
     private fun updateState(transform: (PocketDevState) -> PocketDevState) {
         _state.update(transform)
     }
-
     private fun updateSession(projectId: String, transform: (ProjectSessionState) -> ProjectSessionState) {
         _state.update { state ->
             val current = state.sessions[projectId] ?: ProjectSessionState()
@@ -715,6 +732,11 @@ class PocketDevViewModel(
         savedStateHandle[prefix + "running"] = session.command.running
         savedStateHandle[prefix + "stdout"] = session.command.stdout
         savedStateHandle[prefix + "stderr"] = session.command.stderr
+        savedStateHandle[prefix + "codexAction"] = session.command.codexAction
+        savedStateHandle[prefix + "codexNeedsInput"] = session.command.codexNeedsInput
+        savedStateHandle[prefix + "startedAtMs"] = session.command.startedAtMs
+        savedStateHandle[prefix + "lastActivityAtMs"] = session.command.lastActivityAtMs
+        savedStateHandle[prefix + "remoteLogPrefix"] = session.command.remoteLogPrefix
         savedStateHandle[prefix + "exitCode"] = session.command.exitCode
         savedStateHandle[prefix + "connectionError"] = session.command.connectionError
         savedStateHandle[prefix + "artifactRemote"] = session.artifact.remotePath
@@ -733,6 +755,11 @@ class PocketDevViewModel(
                 running = false,
                 stdout = savedStateHandle.get<String>(prefix + "stdout").orEmpty(),
                 stderr = savedStateHandle.get<String>(prefix + "stderr").orEmpty(),
+                codexAction = savedStateHandle.get<String>(prefix + "codexAction"),
+                codexNeedsInput = savedStateHandle.get<Boolean>(prefix + "codexNeedsInput") == true,
+                startedAtMs = savedStateHandle.get<Long>(prefix + "startedAtMs"),
+                lastActivityAtMs = savedStateHandle.get<Long>(prefix + "lastActivityAtMs"),
+                remoteLogPrefix = savedStateHandle.get<String>(prefix + "remoteLogPrefix"),
                 exitCode = savedStateHandle.get<Int>(prefix + "exitCode"),
                 connectionError = if (wasRunning) {
                     "Command was interrupted because PocketDev was stopped while in the background. Run it again to continue."
@@ -758,6 +785,7 @@ class PocketDevViewModel(
         listOf(
             "command", "running", "stdout", "stderr", "exitCode", "connectionError",
             "artifactRemote", "artifactLocal", "artifactError", "workingDirectory", "gitBranch",
+            "codexAction", "codexNeedsInput", "startedAtMs", "lastActivityAtMs", "remoteLogPrefix",
         ).forEach { key -> savedStateHandle.remove<Any>(prefix + key) }
     }
 
