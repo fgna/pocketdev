@@ -53,7 +53,7 @@ class PtyTerminalSession {
             }
             val channel = client.startSession()
             session = channel
-            channel.allocateDefaultPTY()
+            channel.allocatePTY("xterm", 80, 24, 0, 0, emptyMap())
             val remote = channel.startShell()
             shell = remote
             input = remote.outputStream
@@ -83,6 +83,15 @@ class PtyTerminalSession {
     @Synchronized fun send(text: String): Boolean {
         if (!active.get()) return false
         return runCatching { input?.apply { write(text.toByteArray(Charsets.UTF_8)); flush() } != null }.getOrDefault(false)
+    }
+
+    fun resize(columns: Int, rows: Int): Boolean {
+        if (columns !in 20..500 || rows !in 5..300) return false
+        val current = shell ?: return false
+        return runCatching {
+            current.changeWindowDimensions(columns, rows, 0, 0)
+            true
+        }.getOrDefault(false)
     }
 
     fun interrupt(): Boolean = send("\u0003")
