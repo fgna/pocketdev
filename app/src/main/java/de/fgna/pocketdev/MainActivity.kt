@@ -10,6 +10,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
+import java.io.FileInputStream
+import java.security.MessageDigest
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -51,7 +53,8 @@ import de.fgna.pocketdev.artifact.ApkInstaller
 import de.fgna.pocketdev.artifact.SshArtifactRetriever
 import de.fgna.pocketdev.diagnostics.DiagnosticDraftBuilder
 import de.fgna.pocketdev.diagnostics.DiagnosticIssueDraft
-import de.fgna.pocketdev.project.ProjectAction
+import de.fgna.pocketdev.project.ActionProfileTemplates
+import de.fgna.pocketdev.project.ActionDefinition
 import de.fgna.pocketdev.project.ProjectCommandBuilder
 import de.fgna.pocketdev.project.ProjectConfig
 import de.fgna.pocketdev.ssh.AuthMode
@@ -91,8 +94,8 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
         ) nearbyPermissionLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
         else vm.runCommand()
     }
-    val runProjectAction: (ProjectAction) -> Unit = { action ->
-        if (vm.prepareProjectAction(action)) runWithLanPermission()
+    val runProjectAction: (String) -> Unit = { actionId ->
+        if (vm.prepareProjectAction(actionId)) runWithLanPermission()
     }
 
     PocketDevTheme {
@@ -152,6 +155,10 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
             ProjectDialog(
                 state = state.projectEditor,
                 editingExisting = state.projectEditorId != null,
+                profiles = state.actionProfiles,
+                profileUseCount = state.projects.count { it.actionProfileId == state.projectEditor.actionProfileId },
+                onSelectProfile = vm::selectActionProfile,
+                onSaveProfile = vm::saveActionProfile,
                 onChange = vm::updateProjectEditor,
                 onDismiss = vm::closeProjectEditor,
                 onSave = vm::saveProjectEditor,
@@ -216,7 +223,7 @@ private fun PocketDevHome(
     onConfigure: () -> Unit,
     onProjects: () -> Unit,
     onSelectProject: (String) -> Unit,
-    onProjectAction: (ProjectAction) -> Unit,
+    onProjectAction: (String) -> Unit,
     onDownloadArtifact: () -> Unit,
     onOpenArtifact: (String) -> Unit,
     onCommandChange: (String) -> Unit,
@@ -334,15 +341,50 @@ private fun PocketDevHome(
                                 Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                             }
 
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                OutlinedButton(modifier = Modifier.weight(1f), onClick = { onProjectAction(ProjectAction.GIT_STATUS) }, enabled = !busy) { Text("Status") }
-                                OutlinedButton(modifier = Modifier.weight(1f), onClick = { onProjectAction(ProjectAction.TEST) }, enabled = !busy && project.testCommand.isNotBlank()) { Text("Test") }
-                                Button(modifier = Modifier.weight(1f), onClick = { onProjectAction(ProjectAction.BUILD) }, enabled = !busy && project.buildCommand.isNotBlank()) { Text("Build") }
+                            val actionsResult = remember(project, state.actionProfiles) {
+                                runCatching { ProjectCommandBuilder.availableActions(project, state.actionProfiles) }
+                            }
+                            val actions = actionsResult.getOrDefault(emptyList())
+                            val actionProfile = state.actionProfiles.firstOrNull { it.id == project.actionProfileId }
+                            Text(actionProfile?.name ?: "Unavailable action profile", style = MaterialTheme.typography.labelMedium)
+                            actionsResult.exceptionOrNull()?.let {
+                                Text("Select an available profile in Projects → Edit.", color = MaterialTheme.colorScheme.error)
+                            }
+                            var pendingAction by remember(project.id, project.actionProfileId, project.customActions, project.actionOrder, state.actionProfiles) { mutableStateOf<ActionDefinition?>(null) }
+                            actions.chunked(3).forEach { group ->
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    group.forEach { action ->
+                                        OutlinedButton(
+                                            modifier = Modifier.weight(1f),
+                                            onClick = {
+                                                if (action.requiresConfirmation) pendingAction = action
+                                                else onProjectAction(action.id)
+                                            },
+                                            enabled = !busy,
+                                        ) { Text(action.label) }
+                                    }
+                                }
+                            }
+                            pendingAction?.let { action ->
+                                AlertDialog(
+                                    onDismissRequest = { pendingAction = null },
+                                    title = { Text("Run ${action.label}?") },
+                                    text = { Text("${profile.username}@${profile.host}\n${state.projects.firstOrNull { it.id == project.id }?.remotePath ?: project.remotePath}\n\n${action.command}") },
+                                    confirmButton = {
+                                        TextButton(enabled = !busy, onClick = {
+                                            pendingAction = null
+                                            onProjectAction(action.id)
+                                        }) { Text("Run") }
+                                    },
+                                    dismissButton = { TextButton(onClick = { pendingAction = null }) { Text("Cancel") } },
+                                )
                             }
 
+                            if (actionProfile?.supportsApk == true) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 OutlinedButton(modifier = Modifier.weight(1f), onClick = onDownloadArtifact, enabled = profile.hostKeySha256.isNotBlank() && state.hasStoredSecret && !busy) { Text(if (artifact.downloading) "Downloading…" else "Get APK") }
                                 OutlinedButton(modifier = Modifier.weight(1f), onClick = { artifact.localPath?.let(onOpenArtifact) }, enabled = artifact.localPath != null && !artifact.downloading) { Text("Open APK") }
+                            }
                             }
 
                             when {
@@ -556,56 +598,6 @@ private fun ProjectSwitcherDialog(
 }
 
 @Composable
-private fun ProjectDialog(
-    state: ProjectEditorState,
-    editingExisting: Boolean,
-    onChange: ((ProjectEditorState) -> ProjectEditorState) -> Unit,
-    onDismiss: () -> Unit,
-    onSave: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    var confirmDelete by remember { mutableStateOf(false) }
-    val remotePathValid = state.remotePath.trim().startsWith("/")
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (editingExisting) "Edit project" else "New project") },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = state.name, onValueChange = { value -> onChange { it.copy(name = value) } }, label = { Text("Name") }, singleLine = true)
-                OutlinedTextField(
-                    value = state.remotePath,
-                    onValueChange = { value -> onChange { it.copy(remotePath = value) } },
-                    label = { Text("Remote path") },
-                    supportingText = { Text(if (state.remotePath.isNotBlank() && !remotePathValid) "Must start with /, e.g. /home/user/Projects/app" else "Absolute directory on the SSH server") },
-                    isError = state.remotePath.isNotBlank() && !remotePathValid,
-                )
-                OutlinedTextField(value = state.testCommand, onValueChange = { value -> onChange { it.copy(testCommand = value) } }, label = { Text("Test command") }, singleLine = true)
-                OutlinedTextField(value = state.buildCommand, onValueChange = { value -> onChange { it.copy(buildCommand = value) } }, label = { Text("Build command") }, singleLine = true)
-                OutlinedTextField(value = state.githubRepository, onValueChange = { value -> onChange { it.copy(githubRepository = value.trim()) } }, label = { Text("GitHub repository") }, supportingText = { Text("Optional owner/name, e.g. fgna/pocketdev") }, singleLine = true)
-            }
-        },
-        confirmButton = { TextButton(onClick = onSave, enabled = state.name.isNotBlank() && remotePathValid) { Text("Save") } },
-        dismissButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (editingExisting) TextButton(onClick = { confirmDelete = true }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-            }
-        },
-    )
-
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete project?") },
-            text = { Text("This removes the saved PocketDev project configuration. It does not delete the remote repository.") },
-            confirmButton = { TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
-        )
-    }
-}
-
-@Composable
 private fun IssueDraftDialog(
     draft: DiagnosticIssueDraft,
     repository: String,
@@ -676,6 +668,23 @@ private fun openApk(context: Context, path: String) {
     val verifiedHash = runCatching { marker.readText().trim() }.getOrNull()
     if (!marker.isFile || verifiedHash == null || !verifiedHash.matches(Regex("^[0-9a-f]{64}$"))) {
         Toast.makeText(context, "APK is not verified. Tap Get APK again before installing.", Toast.LENGTH_LONG).show()
+        return
+    }
+
+    val actualHash = runCatching {
+        val digest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(file).use { input ->
+            val buffer = ByteArray(8192)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+    }.getOrNull()
+    if (actualHash == null || !actualHash.equals(verifiedHash, ignoreCase = true)) {
+        Toast.makeText(context, "APK verification failed: file changed after download.", Toast.LENGTH_LONG).show()
         return
     }
 
