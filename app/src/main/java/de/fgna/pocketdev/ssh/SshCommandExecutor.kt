@@ -18,6 +18,7 @@ import java.net.Inet4Address
 import java.net.InetAddress
 import java.security.PublicKey
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 interface SshCommandExecutor {
     fun execute(
@@ -42,6 +43,7 @@ class SshjCommandExecutor : SshCommandExecutor {
         val remote: Session.Command,
         val writer: BufferedWriter,
         val emit: (CommandEvent) -> Unit,
+        val sudoGeneration: AtomicLong,
     )
 
     override fun sendInput(commandId: String, text: String): Boolean = sendInputTo(commandId, text)
@@ -119,6 +121,7 @@ class SshjCommandExecutor : SshCommandExecutor {
             remote = withContext(Dispatchers.IO) { session!!.exec(effectiveCommand) }
             writer = remote!!.outputStream.bufferedWriter()
             cancelledCommands.remove(controlKey)
+            val sudoGeneration = AtomicLong(0)
             activeCommands[controlKey] = ActiveCommand(
                 originalCommand = command,
                 ssh = connected,
@@ -126,6 +129,7 @@ class SshjCommandExecutor : SshCommandExecutor {
                 remote = remote!!,
                 writer = writer!!,
                 emit = { event -> trySend(event); Unit },
+                sudoGeneration = sudoGeneration,
             )
             if (commandId != null) {
                 activeUserCommands += controlKey
@@ -147,7 +151,10 @@ class SshjCommandExecutor : SshCommandExecutor {
             }
             val stderrJob = launch(Dispatchers.IO) {
                 if (interactiveSudo) {
-                    streamInteractiveStderr(remote!!.errorStream) { event -> trySend(event) }
+                    streamInteractiveStderr(remote!!.errorStream) { event ->
+                        if (event == CommandEvent.SudoPasswordRequired) sudoGeneration.incrementAndGet()
+                        trySend(event)
+                    }
                 } else {
                     stream(remote!!.errorStream) { text -> trySend(CommandEvent.Output(OutputStreamKind.STDERR, text)) }
                 }
@@ -288,12 +295,18 @@ class SshjCommandExecutor : SshCommandExecutor {
             return CommandInputHandle(
                 writer = active.writer,
                 isCurrent = { activeCommands[commandId] === active && !cancelledCommands.contains(commandId) },
-                onSent = { active.emit(CommandEvent.SudoPasswordSubmitted) },
+                onSent = {},
             )
         }
 
-        fun sendInputTo(commandId: String, text: String): Boolean =
-            captureInputFor(commandId)?.sendLine(text) ?: false
+        fun sendInputTo(commandId: String, text: String): Boolean {
+            val active = activeCommands[commandId] ?: return false
+            val generation = active.sudoGeneration.get()
+            val handle = captureInputFor(commandId) ?: return false
+            if (!handle.sendLine(text)) return false
+            active.emit(CommandEvent.SudoPasswordSubmitted(generation))
+            return true
+        }
 
         fun cancelMatching(commandHint: String): Boolean {
             val entry = findActive(commandHint) ?: return false
