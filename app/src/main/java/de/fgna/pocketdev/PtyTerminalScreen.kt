@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import de.fgna.pocketdev.data.SshProfileRepository
 import de.fgna.pocketdev.ssh.PtyTerminalSession
+import de.fgna.pocketdev.ssh.TerminalScreen
 import de.fgna.pocketdev.ssh.SshProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -44,6 +45,7 @@ fun PtyTerminalScreen(
 ) {
     val context = LocalContext.current
     val terminal = remember { PtyTerminalSession() }
+    val display = remember { TerminalScreen() }
     var output by remember { mutableStateOf("") }
     var input by remember { mutableStateOf("") }
     var running by remember { mutableStateOf(true) }
@@ -59,9 +61,7 @@ fun PtyTerminalScreen(
                 ?: error("No SSH credentials stored")
             val code = terminal.run(profile, secret, projectPath) { chunk ->
                 // Display best-effort plain text; PTY itself preserves interactive input.
-                val readable = chunk.replace(Regex("\\u001B\\[[0-?]*[ -/]*[@-~]"), "")
-                    .replace(Regex("\\u001B\\][^\\u0007]*(?:\\u0007|\\u001B\\\\)"), "")
-                output = (output + readable).takeLast(100_000)
+                output = display.accept(chunk)
             }
             output += "\n[Session ended: $code]"
         } catch (error: Exception) {
