@@ -194,7 +194,139 @@ class SshjCommandExecutor : SshCommandExecutor {
     }
 
     private fun interactiveSudoCommand(command: String): String = """
-        sudo() { command sudo -S -p '$SUDO_PROMPT' "${'$'}@"; }
+        # Preserve the SSH input stream separately from pipelines feeding sudo's command.
+        exec 3<&0
+        sudo() {
+          command sudo -S -p '$SUDO_PROMPT' -v <&3 || return
+          command sudo -n "${'
+
+    private fun createAndroidCompatibleClient(): SSHClient {
+        val config = DefaultSecurityProviderConfig().apply {
+            setKeyAlgorithms(listOf(KeyAlgorithms.RSASHA512(), KeyAlgorithms.RSASHA256()))
+        }
+        return SSHClient(config)
+    }
+
+    private fun configureHostKeyVerifier(
+        ssh: SSHClient,
+        profile: SshProfile,
+        onDiscoveredFingerprint: (String) -> Unit,
+    ) {
+        if (profile.hostKeySha256.isBlank()) {
+            ssh.addHostKeyVerifier(object : HostKeyVerifier {
+                override fun verify(hostname: String, port: Int, key: PublicKey): Boolean {
+                    onDiscoveredFingerprint(SecurityUtils.getFingerprint(key))
+                    return true
+                }
+
+                override fun findExistingAlgorithms(hostname: String, port: Int): List<String> = emptyList()
+            })
+        } else {
+            ssh.addHostKeyVerifier(profile.hostKeySha256.trim())
+        }
+    }
+
+    private fun resolveTargets(host: String): List<String> {
+        val addresses = InetAddress.getAllByName(host).toList()
+        return addresses.sortedByDescending { it is Inet4Address }.mapNotNull { it.hostAddress }.distinct().ifEmpty { listOf(host) }
+    }
+
+    private fun stream(input: InputStream, onChunk: (String) -> Unit) {
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            val count = input.read(buffer)
+            if (count <= 0) break
+            onChunk(buffer.decodeToString(0, count))
+        }
+    }
+
+    private fun streamInteractiveStderr(input: InputStream, emit: (CommandEvent) -> Unit) {
+        val parser = SudoPromptParser(emit)
+        stream(input, parser::accept)
+        parser.finish()
+    }
+
+    companion object {
+        private const val SUDO_PROMPT = SudoPromptParser.MARKER
+        private val activeCommands = ConcurrentHashMap<String, ActiveCommand>()
+        private val activeUserCommands = ConcurrentHashMap.newKeySet<String>()
+        private val activeCommandListeners = ConcurrentHashMap.newKeySet<(Int) -> Unit>()
+        private val cancelledCommands = ConcurrentHashMap.newKeySet<String>()
+
+        private fun findActive(commandHint: String): Map.Entry<String, ActiveCommand>? {
+            activeCommands[commandHint]?.let { exact ->
+                return object : Map.Entry<String, ActiveCommand> {
+                    override val key: String = commandHint
+                    override val value: ActiveCommand = exact
+                }
+            }
+            return activeCommands.entries.firstOrNull { (_, active) ->
+                active.originalCommand == commandHint || active.originalCommand.contains(commandHint)
+            }
+        }
+
+        fun activeUserCommandCount(): Int = activeUserCommands.size
+
+        fun cancelAllActiveUserCommands(): Int {
+            val commandIds = activeUserCommands.toList()
+            return commandIds.count { commandId -> cancelMatching(commandId) }
+        }
+
+        fun addActiveCommandListener(listener: (Int) -> Unit): () -> Unit {
+            activeCommandListeners += listener
+            listener(activeUserCommandCount())
+            return {
+                activeCommandListeners -= listener
+            }
+        }
+
+        private fun notifyActiveCommandListeners() {
+            val count = activeUserCommandCount()
+            activeCommandListeners.forEach { listener -> runCatching { listener(count) } }
+        }
+
+        private fun retireInput(commandId: String) {
+            val active = activeCommands[commandId] ?: return
+            synchronized(active.writer) {
+                activeCommands.remove(commandId, active)
+            }
+        }
+
+        fun captureInputFor(commandId: String): CommandInputHandle? {
+            val active = activeCommands[commandId] ?: return null
+            return CommandInputHandle(
+                writer = active.writer,
+                isCurrent = { activeCommands[commandId] === active && !cancelledCommands.contains(commandId) },
+                onSent = {},
+            )
+        }
+
+        fun sendInputTo(commandId: String, text: String): Boolean {
+            val active = activeCommands[commandId] ?: return false
+            val generation = active.sudoGeneration.get()
+            val handle = captureInputFor(commandId) ?: return false
+            if (!handle.sendLine(text)) return false
+            active.emit(CommandEvent.SudoPasswordSubmitted(generation))
+            return true
+        }
+
+        fun cancelMatching(commandHint: String): Boolean {
+            val entry = findActive(commandHint) ?: return false
+            val key = entry.key
+            val active = entry.value
+            cancelledCommands += key
+            runCatching { active.remote.signal(Signal.INT) }
+            runCatching { Thread.sleep(120) }
+            runCatching { active.remote.close() }
+            runCatching { active.session.close() }
+            runCatching { active.ssh.disconnect() }
+            runCatching { active.ssh.close() }
+            return true
+        }
+    }
+}
+}@"
+        }
         $command
     """.trimIndent()
 
