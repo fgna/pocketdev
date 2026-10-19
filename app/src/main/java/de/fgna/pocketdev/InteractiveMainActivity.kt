@@ -20,11 +20,15 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -127,7 +131,7 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
                 Text("Files")
             }
 
-            if (command.running && !command.awaitingSudoPassword) {
+            if (command.running) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier
@@ -154,116 +158,103 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
         }
     }
 
-    LaunchedEffect(command.running, command.awaitingSudoPassword) {
-        if (!command.running || command.awaitingSudoPassword) inputTarget = null
+    LaunchedEffect(command.running) {
+        if (!command.running) inputTarget = null
     }
-    inputTarget?.takeIf { command.running && !command.awaitingSudoPassword && it.isActive }?.let { target ->
-        key(target) {
-            CommandInputDialog(
-                onSubmit = { reply ->
-                    inputTarget = null
+    // Automatic sudo prompts take precedence over an already open manual input dialog.
+    // Preserve the manual dialog across normal output/status recompositions.
+    if (command.running && command.awaitingSudoPassword) {
+        key(activeProjectId, "sudo") {
+            UnifiedInputDialog(
+                sudo = true,
+                onSubmit = { password ->
                     scope.launch {
-                        val sent = withContext(Dispatchers.IO) { target.sendLine(reply) }
+                        val sent = withContext(Dispatchers.IO) {
+                            runCatching {
+                                activeProjectId.isNotBlank() && SshjCommandExecutor.sendInputTo(activeProjectId, password)
+                            }.getOrDefault(false)
+                        }
                         if (!sent) {
-                            Toast.makeText(context, "Input could not be sent. The command may have ended.", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "The sudo prompt is no longer active.", Toast.LENGTH_SHORT).show()
                         }
                     }
                 },
-                onDismiss = { inputTarget = null },
+                onDismiss = { scope.launch { cancelActiveCommand() } },
             )
         }
-    }
-
-    if (command.awaitingSudoPassword) {
-        SudoPasswordDialog(
-            onSubmit = { password ->
-                scope.launch {
-                    val sent = withContext(Dispatchers.IO) {
-                        runCatching {
-                            activeProjectId.isNotBlank() && SshjCommandExecutor.sendInputTo(activeProjectId, password)
-                        }.getOrDefault(false)
-                    }
-                    if (!sent) {
-                        Toast.makeText(context, "The sudo prompt is no longer active.", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            },
-            onCancel = {
-                scope.launch {
-                    cancelActiveCommand()
-                }
-            },
-        )
+    } else {
+        inputTarget?.takeIf { command.running && it.isActive }?.let { target ->
+            key(target) {
+                UnifiedInputDialog(
+                    sudo = false,
+                    onSubmit = { reply ->
+                        inputTarget = null
+                        scope.launch {
+                            val sent = withContext(Dispatchers.IO) { target.sendLine(reply) }
+                            if (!sent) {
+                                Toast.makeText(context, "Input could not be sent. The command may have ended.", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    onDismiss = { inputTarget = null },
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun CommandInputDialog(
+private fun UnifiedInputDialog(
+    sudo: Boolean,
     onSubmit: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var reply by remember { mutableStateOf("") }
-    var hideInput by remember { mutableStateOf(false) }
+    var reply by remember(sudo) { mutableStateOf("") }
+    var passwordVisible by remember(sudo) { mutableStateOf(false) }
+    // Sudo credentials are masked by default. Generic command input can also be masked.
+    var sensitive by remember(sudo) { mutableStateOf(sudo) }
+    val masked = sensitive && !passwordVisible
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Command input") },
+        title = { Text(if (sudo) "Input · sudo password" else "Command input") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Send a reply to the running command. An empty reply sends Enter.")
+                Text(
+                    if (sudo) "The running command requests sudo authentication."
+                    else "Send a reply to the running command. An empty reply sends Enter."
+                )
                 OutlinedTextField(
                     value = reply,
                     onValueChange = { reply = it },
-                    label = { Text("Reply") },
-                    visualTransformation = if (hideInput) PasswordVisualTransformation() else VisualTransformation.None,
-                    keyboardOptions = if (hideInput) KeyboardOptions(keyboardType = KeyboardType.Password) else KeyboardOptions.Default,
-                    minLines = 2,
-                    maxLines = 5,
+                    label = { Text(if (sudo) "Password" else "Reply") },
+                    visualTransformation = if (masked) PasswordVisualTransformation() else VisualTransformation.None,
+                    keyboardOptions = if (sensitive) KeyboardOptions(keyboardType = KeyboardType.Password) else KeyboardOptions.Default,
+                    singleLine = sudo,
+                    minLines = if (sudo) 1 else 2,
+                    maxLines = if (sudo) 1 else 5,
+                    trailingIcon = {
+                        IconButton(onClick = {
+                            if (!sensitive) sensitive = true
+                            else passwordVisible = !passwordVisible
+                        }) {
+                            Icon(
+                                imageVector = if (masked) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                                contentDescription = if (masked) "Show input" else "Hide input",
+                            )
+                        }
+                    },
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = hideInput, onCheckedChange = { hideInput = it })
-                    Text("Hide input")
+                if (!sudo) {
+                    TextButton(onClick = {
+                        sensitive = !sensitive
+                        passwordVisible = false
+                    }) {
+                        Text(if (sensitive) "Password mode on" else "Password mode off")
+                    }
                 }
                 Text(
-                    "PocketDev does not save your reply. The remote program may echo it in its output.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                val value = reply
-                reply = ""
-                onSubmit(value)
-            }) { Text("Send") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-@Composable
-private fun SudoPasswordDialog(
-    onSubmit: (String) -> Unit,
-    onCancel: () -> Unit,
-) {
-    var password by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onCancel,
-        title = { Text("sudo password") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("The remote command requested sudo authentication. The password is sent only to this running command and is not stored by PocketDev.")
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("Password") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    singleLine = true,
-                )
-                Text(
-                    "Cancel stops the waiting remote command.",
+                    if (sudo) "Cancel stops the waiting command. The password is not stored by PocketDev."
+                    else "PocketDev does not save replies. The remote program may echo ordinary input.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -271,14 +262,17 @@ private fun SudoPasswordDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = password.isNotEmpty(),
+                enabled = !sudo || reply.isNotEmpty(),
                 onClick = {
-                    val value = password
-                    password = ""
+                    val value = reply
+                    reply = ""
+                    passwordVisible = false
                     onSubmit(value)
                 },
-            ) { Text("Continue") }
+            ) { Text(if (sudo) "Continue" else "Send") }
         },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel command") } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(if (sudo) "Cancel command" else "Cancel") }
+        },
     )
 }

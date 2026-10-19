@@ -45,4 +45,23 @@ class CommandStateReducerTest {
         assertEquals(7, remoteFailure.exitCode)
         assertEquals(null, remoteFailure.connectionError)
     }
+
+    @Test
+    fun `sudo prompt remains active while output arrives during slow password entry`() {
+        var state = CommandStateReducer.reduce(
+            CommandUiState(running = true),
+            CommandEvent.SudoPasswordRequired,
+        )
+        repeat(12) { index ->
+            state = CommandStateReducer.reduce(
+                state,
+                CommandEvent.Output(OutputStreamKind.STDOUT, "progress ${index}\n"),
+            )
+            assertTrue(state.running)
+            assertTrue(state.awaitingSudoPassword)
+        }
+        state = CommandStateReducer.reduce(state, CommandEvent.SudoPasswordSubmitted)
+        assertFalse(state.awaitingSudoPassword)
+        assertTrue(state.running)
+    }
 }
