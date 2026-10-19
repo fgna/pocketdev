@@ -194,11 +194,14 @@ class SshjCommandExecutor : SshCommandExecutor {
     }
 
     private fun interactiveSudoCommand(command: String): String = """
-        # Preserve the SSH input stream separately from pipelines feeding sudo's command.
+        # Keep SSH input available for sudo authentication even inside a pipeline.
         exec 3<&0
         sudo() {
           command sudo -S -p '$SUDO_PROMPT' -v <&3 || return
-          command sudo -n "${'
+          command sudo -n "${'$'}@"
+        }
+        $command
+    """.trimIndent()
 
     private fun createAndroidCompatibleClient(): SSHClient {
         val config = DefaultSecurityProviderConfig().apply {
