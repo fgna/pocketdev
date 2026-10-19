@@ -66,7 +66,7 @@ class PtyTerminalSession {
                 if (count > 0) onOutput(String(buffer, 0, count, Charsets.UTF_8))
             }
             remote.join()
-            remote.exitStatus ?: 0
+            0 // SSHJ shell channels do not expose an exec-command exit status.
         } finally {
             active.set(false)
             runCatching { shell?.close() }
