@@ -60,8 +60,20 @@ class CommandStateReducerTest {
             assertTrue(state.running)
             assertTrue(state.awaitingSudoPassword)
         }
-        state = CommandStateReducer.reduce(state, CommandEvent.SudoPasswordSubmitted)
+        state = CommandStateReducer.reduce(state, CommandEvent.SudoPasswordSubmitted(1))
         assertFalse(state.awaitingSudoPassword)
         assertTrue(state.running)
     }
+    @Test
+    fun `late submission cannot dismiss next sudo prompt`() {
+        var state = CommandUiState(running = true)
+        state = CommandStateReducer.reduce(state, CommandEvent.SudoPasswordRequired)
+        state = CommandStateReducer.reduce(state, CommandEvent.SudoPasswordRequired)
+        state = CommandStateReducer.reduce(state, CommandEvent.SudoPasswordSubmitted(1))
+        assertTrue(state.awaitingSudoPassword)
+        assertEquals(2L, state.sudoPromptGeneration)
+        state = CommandStateReducer.reduce(state, CommandEvent.SudoPasswordSubmitted(2))
+        assertFalse(state.awaitingSudoPassword)
+    }
 }
+
