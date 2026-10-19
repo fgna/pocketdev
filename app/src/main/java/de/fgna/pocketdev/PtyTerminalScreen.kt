@@ -47,6 +47,8 @@ fun PtyTerminalScreen(
     var output by remember { mutableStateOf("") }
     var input by remember { mutableStateOf("") }
     var running by remember { mutableStateOf(true) }
+    var columns by remember { mutableStateOf(80) }
+    var rows by remember { mutableStateOf(24) }
     val scroll = rememberScrollState()
 
     DisposableEffect(terminal) { onDispose { terminal.close() } }
@@ -95,6 +97,25 @@ fun PtyTerminalScreen(
             minLines = 1,
             maxLines = 3,
         )
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(enabled = running, onClick = { terminal.send("\u001b[A") }) { Text("↑") }
+            TextButton(enabled = running, onClick = { terminal.send("\u001b[B") }) { Text("↓") }
+            TextButton(enabled = running, onClick = { terminal.send("\u001b[D") }) { Text("←") }
+            TextButton(enabled = running, onClick = { terminal.send("\u001b[C") }) { Text("→") }
+            TextButton(enabled = running, onClick = { terminal.send("\t") }) { Text("Tab") }
+            TextButton(enabled = running, onClick = { terminal.send("\u001b") }) { Text("Esc") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(enabled = running && columns > 40, onClick = {
+                columns -= 10
+                terminal.resize(columns, rows)
+            }) { Text("− cols") }
+            Text("$columns × $rows", modifier = Modifier.padding(top = 12.dp))
+            TextButton(enabled = running && columns < 160, onClick = {
+                columns += 10
+                terminal.resize(columns, rows)
+            }) { Text("+ cols") }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(enabled = running, onClick = {
                 terminal.send(input + "\n")
