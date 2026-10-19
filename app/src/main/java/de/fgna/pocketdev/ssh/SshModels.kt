@@ -54,7 +54,7 @@ data class CommandUiState(
 
 object CommandStateReducer {
     fun reduce(current: CommandUiState, event: CommandEvent): CommandUiState = when (event) {
-        CommandEvent.Connecting -> current.copy(running = true, connectionError = null, awaitingSudoPassword = false)
+        CommandEvent.Connecting -> current.copy(running = true, connectionError = null, awaitingSudoPassword = false, sudoPromptGeneration = 0)
         CommandEvent.Connected -> current.copy(running = true)
         CommandEvent.SudoPasswordRequired -> current.copy(running = true, awaitingSudoPassword = true, sudoPromptGeneration = current.sudoPromptGeneration + 1)
         is CommandEvent.SudoPasswordSubmitted -> if (event.generation == current.sudoPromptGeneration) {
