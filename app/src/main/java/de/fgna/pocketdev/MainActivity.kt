@@ -116,6 +116,7 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                 onCommandChange = vm::setCommand,
                 onRun = runWithLanPermission,
                 onProjectHome = { if (vm.prepareProjectHome()) runWithLanPermission() },
+                onParentDirectory = { if (vm.prepareParentDirectory()) runWithLanPermission() },
                 onCopy = { text -> copyText(context, text) },
                 onUnlockGitKey = vm::openGitKeyUnlock,
                 onRefreshGitKey = vm::refreshGitKeyStatus,
@@ -271,6 +272,7 @@ private fun PocketDevHome(
     onCommandChange: (String) -> Unit,
     onRun: () -> Unit,
     onProjectHome: () -> Unit,
+    onParentDirectory: () -> Unit,
     onCopy: (String) -> Unit,
     onUnlockGitKey: () -> Unit,
     onRefreshGitKey: () -> Unit,
@@ -444,6 +446,7 @@ private fun PocketDevHome(
                     Row(modifier = Modifier.fillMaxWidth()) {
                         PocketDevSectionLabel("Command", modifier = Modifier.weight(1f))
                         TextButton(onClick = { onCommandChange("pwd") }, enabled = !busy) { Text("pwd") }
+                        TextButton(onClick = onParentDirectory, enabled = project != null && profile != null && state.hasStoredSecret && !busy) { Text("cd ..") }
                         TextButton(
                             onClick = onProjectHome,
                             enabled = project != null && profile != null && state.hasStoredSecret && !busy,
@@ -465,7 +468,7 @@ private fun PocketDevHome(
                         maxLines = 5,
                         enabled = !busy,
                         textStyle = MaterialTheme.typography.bodyMedium,
-                        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii),
+                        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.VisiblePassword),
                     )
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Button(modifier = Modifier.weight(1f), onClick = onRun, enabled = profile != null && state.hasStoredSecret && execution.command.isNotBlank() && !busy) { Text(if (execution.running) "Running…" else "Run") }
