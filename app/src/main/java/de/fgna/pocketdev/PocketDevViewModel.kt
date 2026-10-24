@@ -13,6 +13,7 @@ import de.fgna.pocketdev.project.ProjectAction
 import de.fgna.pocketdev.project.ProjectCommandBuilder
 import de.fgna.pocketdev.project.ProjectConfig
 import de.fgna.pocketdev.project.ProjectProvisioning
+import de.fgna.pocketdev.project.GitHubQuickImport
 import de.fgna.pocketdev.project.ActionDefinition
 import de.fgna.pocketdev.project.ActionProfile
 import de.fgna.pocketdev.project.ActionProfileTemplates
@@ -91,6 +92,9 @@ data class PocketDevState(
     val gitKeyMessage: String? = null,
     val gitKeyUnlockOpen: Boolean = false,
     val pendingProjectCreate: ProjectCreateRequest? = null,
+    val quickImportOpen: Boolean = false,
+    val quickImportBusy: Boolean = false,
+    val quickImportError: String? = null,
 ) {
     val command: CommandUiState
         get() = project?.let { sessions[it.id]?.command } ?: CommandUiState(command = "pwd")
@@ -194,6 +198,80 @@ class PocketDevViewModel(
                     actions = runCatching { ProjectCommandBuilder.configuredActions(current, it.actionProfiles) }.getOrDefault(emptyList()),
                 ),
             )
+        }
+    }
+
+
+    fun openQuickImport() = updateState { it.copy(quickImportOpen = true, quickImportError = null) }
+
+    fun closeQuickImport() {
+        if (!_state.value.quickImportBusy) updateState { it.copy(quickImportOpen = false, quickImportError = null) }
+    }
+
+    fun importFromGitHub(input: String) {
+        if (_state.value.quickImportBusy) return
+        val repo = runCatching { GitHubQuickImport.parse(input) }.getOrElse { error ->
+            updateState { it.copy(quickImportError = error.message) }
+            return
+        }
+        val existing = _state.value.projects.firstOrNull { it.githubRepository.equals(repo, ignoreCase = true) }
+        if (existing != null) {
+            selectProject(existing.id)
+            updateState { it.copy(quickImportOpen = false, quickImportError = null) }
+            return
+        }
+        val profile = _state.value.profile
+        val secret = repository.loadSecret()
+        if (profile == null || secret.isNullOrBlank()) {
+            updateState { it.copy(quickImportError = "Configure an SSH server first.") }
+            return
+        }
+        updateState { it.copy(quickImportBusy = true, quickImportError = null) }
+        viewModelScope.launch {
+            var output = ""
+            var errorOutput = ""
+            var exitCode: Int? = null
+            var failure: String? = null
+            val commandId = "quick-import"
+            try {
+                executor.execute(profile, secret, GitSshAgent.wrap(GitHubQuickImport.command(repo)), commandId).collect { event ->
+                    when (event) {
+                        is CommandEvent.Output -> if (event.stream == OutputStreamKind.STDOUT) output += event.text else errorOutput += event.text
+                        is CommandEvent.Completed -> exitCode = event.exitCode
+                        is CommandEvent.ConnectionFailed -> failure = event.message
+                        is CommandEvent.HostKeyTrustRequired -> failure = "Confirm the SSH server host key in Server settings first."
+                        else -> Unit
+                    }
+                }
+                val path = output.lineSequence().firstOrNull { it.startsWith("POCKETDEV_IMPORT_OK:") }
+                    ?.removePrefix("POCKETDEV_IMPORT_OK:")?.trim()
+                if (failure == null && exitCode == 0 && path != null && path.startsWith("/")) {
+                    val project = ProjectConfig(
+                        name = repo.substringAfter('/'), remotePath = path,
+                        githubRepository = repo, testCommand = "./gradlew test",
+                        buildCommand = "./gradlew assembleDebug",
+                    )
+                    val collection = projectRepository.upsert(project, makeActive = true)
+                    updateState {
+                        val sessions = ensureSessions(collection.projects, it.sessions)
+                        it.copy(projects = collection.projects,
+                            project = displayProject(collection.activeProject, sessions),
+                            sessions = sessions, quickImportOpen = false,
+                            quickImportBusy = false, quickImportError = null)
+                    }
+                    collection.activeProject?.id?.let(::refreshGitBranch)
+                } else {
+                    val message = when {
+                        output.contains("POCKETDEV_IMPORT_CONFLICT") -> "The Projects folder already contains a different checkout. Use Advanced to select another location."
+                        failure != null -> failure!!
+                        exitCode == 23 -> "Git clone failed. Check GitHub SSH access and unlock your Git key."
+                        else -> errorOutput.trim().take(250).ifBlank { "Could not import repository (exit $exitCode)." }
+                    }
+                    updateState { it.copy(quickImportBusy = false, quickImportError = message) }
+                }
+            } catch (error: Exception) {
+                updateState { it.copy(quickImportBusy = false, quickImportError = error.message ?: "Import failed.") }
+            }
         }
     }
 
