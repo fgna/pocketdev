@@ -445,7 +445,6 @@ private fun PocketDevHome(
                 Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(modifier = Modifier.fillMaxWidth()) {
                         PocketDevSectionLabel("Command", modifier = Modifier.weight(1f))
-                        TextButton(onClick = { onCommandChange("pwd") }, enabled = !busy) { Text("pwd") }
                         TextButton(onClick = onParentDirectory, enabled = project != null && profile != null && state.hasStoredSecret && !busy) { Text("cd ..") }
                         TextButton(
                             onClick = onProjectHome,
