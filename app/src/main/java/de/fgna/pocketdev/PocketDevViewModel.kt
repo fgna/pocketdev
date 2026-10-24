@@ -55,7 +55,7 @@ data class ProjectEditorState(
 )
 
 data class ProjectSessionState(
-    val command: CommandUiState = CommandUiState(command = "pwd"),
+    val command: CommandUiState = CommandUiState(command = ""),
     val artifact: ArtifactDownloadState = ArtifactDownloadState(),
     val workingDirectory: String? = null,
     val gitBranch: String? = null,
@@ -702,6 +702,16 @@ class PocketDevViewModel(
         updateSession(projectId) { it.copy(command = it.command.copy(command = command)) }
     }
 
+    fun prepareParentDirectory(): Boolean {
+        val project = _state.value.project ?: return false
+        val session = _state.value.sessions[project.id] ?: return false
+        if (session.command.running) return false
+        updateSession(project.id) {
+            it.copy(command = it.command.copy(command = "cd .. && pwd"))
+        }
+        return true
+    }
+
     fun prepareProjectHome(): Boolean {
         val project = _state.value.project ?: return false
         val session = _state.value.sessions[project.id] ?: return false
@@ -909,7 +919,7 @@ class PocketDevViewModel(
         val wasRunning = savedStateHandle.get<Boolean>(prefix + "running") == true
         return ProjectSessionState(
             command = CommandUiState(
-                command = savedStateHandle.get<String>(prefix + "command") ?: "pwd",
+                command = savedStateHandle.get<String>(prefix + "command") ?: "",
                 running = false,
                 stdout = savedStateHandle.get<String>(prefix + "stdout").orEmpty(),
                 stderr = savedStateHandle.get<String>(prefix + "stderr").orEmpty(),
