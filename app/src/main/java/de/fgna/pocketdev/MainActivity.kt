@@ -142,13 +142,52 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                 },
                 onNew = {
                     projectSwitcherOpen = false
-                    vm.openNewProjectEditor()
+                    vm.openQuickImport()
                 },
                 onEdit = {
                     projectSwitcherOpen = false
                     vm.openProjectEditor()
                 },
                 onDismiss = { projectSwitcherOpen = false },
+            )
+        }
+
+        if (state.quickImportOpen) {
+            var repositoryInput by remember { mutableStateOf("") }
+            AlertDialog(
+                onDismissRequest = vm::closeQuickImport,
+                title = { Text("Add from GitHub") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = repositoryInput,
+                            onValueChange = { repositoryInput = it },
+                            label = { Text("GitHub repository") },
+                            placeholder = { Text("fgna/ae") },
+                            singleLine = true,
+                            enabled = !state.quickImportBusy,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Text("Checks ~/Projects on the SSH server. Reuses a matching checkout or clones a missing one.", style = MaterialTheme.typography.bodySmall)
+                        state.quickImportError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        if (state.quickImportBusy) Text("Checking server…")
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = { vm.importFromGitHub(repositoryInput) },
+                        enabled = repositoryInput.isNotBlank() && !state.quickImportBusy,
+                    ) { Text("Add project") }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(onClick = {
+                            vm.closeQuickImport()
+                            vm.openNewProjectEditor()
+                        }, enabled = !state.quickImportBusy) { Text("Advanced") }
+                        TextButton(onClick = vm::closeQuickImport, enabled = !state.quickImportBusy) { Text("Cancel") }
+                    }
+                },
             )
         }
 
