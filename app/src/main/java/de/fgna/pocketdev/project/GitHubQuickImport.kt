@@ -20,21 +20,21 @@ object GitHubQuickImport {
         val ssh = "git@github.com:$repo.git"
         val https = "https://github.com/$repo"
         return """
-            target="$HOME/Projects/$name"
-            if [ -e "$target" ] || [ -L "$target" ]; then
-              if [ ! -d "$target/.git" ] && [ ! -f "$target/.git" ]; then
+            target="${'$'}HOME/Projects/$name"
+            if [ -e "${'$'}target" ] || [ -L "${'$'}target" ]; then
+              if [ ! -d "${'$'}target/.git" ] && [ ! -f "${'$'}target/.git" ]; then
                 printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
               fi
-              origin=$(git -C "$target" remote get-url origin 2>/dev/null) || exit 21
-              case "$origin" in
+              origin=${'$'}(git -C "${'$'}target" remote get-url origin 2>/dev/null) || exit 21
+              case "${'$'}origin" in
                 '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
                 *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
               esac
             else
-              mkdir -p "$HOME/Projects" || exit 22
-              git clone '$ssh' "$target" || exit 23
+              mkdir -p "${'$'}HOME/Projects" || exit 22
+              git clone '$ssh' "${'$'}target" || exit 23
             fi
-            printf 'POCKETDEV_IMPORT_OK:%s\n' "$target"
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "${'$'}target"
         """.trimIndent()
     }
 }
