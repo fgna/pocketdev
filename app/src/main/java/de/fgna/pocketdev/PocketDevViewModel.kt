@@ -234,7 +234,7 @@ class PocketDevViewModel(
             var failure: String? = null
             val commandId = "quick-import"
             try {
-                executor.execute(profile, secret, GitSshAgent.wrap(GitHubQuickImport.command(repo)), commandId).collect { event ->
+                executor.execute(profile = profile, secret = secret, command = GitSshAgent.wrap(GitHubQuickImport.command(repo)), commandId = commandId).collect { event ->
                     when (event) {
                         is CommandEvent.Output -> if (event.stream == OutputStreamKind.STDOUT) output += event.text else errorOutput += event.text
                         is CommandEvent.Completed -> exitCode = event.exitCode
