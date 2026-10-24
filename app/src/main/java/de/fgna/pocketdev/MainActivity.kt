@@ -468,7 +468,7 @@ private fun PocketDevHome(
                         maxLines = 5,
                         enabled = !busy,
                         textStyle = MaterialTheme.typography.bodyMedium,
-                        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.VisiblePassword),
+                        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
                     )
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Button(modifier = Modifier.weight(1f), onClick = onRun, enabled = profile != null && state.hasStoredSecret && execution.command.isNotBlank() && !busy) { Text(if (execution.running) "Running…" else "Run") }
