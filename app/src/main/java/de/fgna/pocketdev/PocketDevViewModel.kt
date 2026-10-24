@@ -702,6 +702,16 @@ class PocketDevViewModel(
         updateSession(projectId) { it.copy(command = it.command.copy(command = command)) }
     }
 
+    fun prepareParentDirectory(): Boolean {
+        val project = _state.value.project ?: return false
+        val session = _state.value.sessions[project.id] ?: return false
+        if (session.command.running) return false
+        updateSession(project.id) {
+            it.copy(command = it.command.copy(command = "cd .. && pwd"))
+        }
+        return true
+    }
+
     fun prepareProjectHome(): Boolean {
         val project = _state.value.project ?: return false
         val session = _state.value.sessions[project.id] ?: return false
