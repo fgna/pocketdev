@@ -20,24 +20,1095 @@ object GitHubQuickImport {
         val name = repo.substringAfter('/')
         val ssh = "git@github.com:$repo.git"
         val https = "https://github.com/$repo"
-        val target = "\$HOME/Projects/\$name"
+        val target = "${'/Projects/$name"
         // All interpolated repository segments pass the strict GitHub identifier validator.
         return """
             target="$target"
-            if [ -e "\$target" ] || [ -L "\$target" ]; then
+            if [ -e "${'" ] || [ -L "\$target" ]; then
               if [ ! -d "\$target/.git" ] && [ ! -f "\$target/.git" ]; then
-                printf 'POCKETDEV_IMPORT_CONFLICT\\n'; exit 20
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
               fi
-              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              origin=${' -C "\$target" remote get-url origin 2>/dev/null) || exit 21
               case "\$origin" in
                 '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
-                *) printf 'POCKETDEV_IMPORT_CONFLICT\\n'; exit 20 ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
               esac
             else
               mkdir -p "\$HOME/Projects" || exit 22
               git clone '$ssh' "\$target" || exit 23
             fi
-            printf 'POCKETDEV_IMPORT_OK:%s\\n' "\$target"
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" ] || [ -L "${'" ]; then
+              if [ ! -d "\$target/.git" ] && [ ! -f "\$target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" ]; then
+              if [ ! -d "${'/.git" ] && [ ! -f "\$target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ] && [ ! -f "${'/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "${'" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "${'" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "${'"
+        """.trimIndent()
+    }
+}
+}target"
+        """.trimIndent()
+    }
+}
+}HOME/Projects/$name"
+        // All interpolated repository segments pass the strict GitHub identifier validator.
+        return """
+            target="$target"
+            if [ -e "${'" ] || [ -L "\$target" ]; then
+              if [ ! -d "\$target/.git" ] && [ ! -f "\$target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "${'/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" ] || [ -L "${'" ]; then
+              if [ ! -d "\$target/.git" ] && [ ! -f "\$target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" ]; then
+              if [ ! -d "${'/.git" ] && [ ! -f "\$target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ] && [ ! -f "${'/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "${'" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "${'" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "${'"
+        """.trimIndent()
+    }
+}
+}target"
+        """.trimIndent()
+    }
+}
+}HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" ] || [ -L "${'" ]; then
+              if [ ! -d "\$target/.git" ] && [ ! -f "\$target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "${'/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" ]; then
+              if [ ! -d "${'/.git" ] && [ ! -f "\$target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ] && [ ! -f "${'/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "${'" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "${'" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "${'"
+        """.trimIndent()
+    }
+}
+}target"
+        """.trimIndent()
+    }
+}
+}HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" ]; then
+              if [ ! -d "${'/.git" ] && [ ! -f "\$target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "${'/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ] && [ ! -f "${'/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "${'" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "${'" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "${'"
+        """.trimIndent()
+    }
+}
+}target"
+        """.trimIndent()
+    }
+}
+}HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ] && [ ! -f "${'/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "${'/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "${'" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "${'" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "${'"
+        """.trimIndent()
+    }
+}
+}target"
+        """.trimIndent()
+    }
+}
+}HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "${'" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "${'/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "${'" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "${'"
+        """.trimIndent()
+    }
+}
+}target"
+        """.trimIndent()
+    }
+}
+}HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "${'/Projects" || exit 22
+              git clone '$ssh' "${'" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "${'"
+        """.trimIndent()
+    }
+}
+}target"
+        """.trimIndent()
+    }
+}
+}HOME/Projects" || exit 22
+              git clone '$ssh' "${'" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "${'"
+        """.trimIndent()
+    }
+}
+}target"
+        """.trimIndent()
+    }
+}
+}(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" ] || [ -L "${'" ]; then
+              if [ ! -d "\$target/.git" ] && [ ! -f "\$target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" ]; then
+              if [ ! -d "${'/.git" ] && [ ! -f "\$target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ] && [ ! -f "${'/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "${'" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "${'" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "${'"
+        """.trimIndent()
+    }
+}
+}target"
+        """.trimIndent()
+    }
+}
+}HOME/Projects/$name"
+        // All interpolated repository segments pass the strict GitHub identifier validator.
+        return """
+            target="$target"
+            if [ -e "${'" ] || [ -L "\$target" ]; then
+              if [ ! -d "\$target/.git" ] && [ ! -f "\$target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "${'/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" ] || [ -L "${'" ]; then
+              if [ ! -d "\$target/.git" ] && [ ! -f "\$target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" ]; then
+              if [ ! -d "${'/.git" ] && [ ! -f "\$target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ] && [ ! -f "${'/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "${'" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "${'" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "${'"
+        """.trimIndent()
+    }
+}
+}target"
+        """.trimIndent()
+    }
+}
+}HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" ] || [ -L "${'" ]; then
+              if [ ! -d "\$target/.git" ] && [ ! -f "\$target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "${'/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" ]; then
+              if [ ! -d "${'/.git" ] && [ ! -f "\$target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ] && [ ! -f "${'/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "${'" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "${'" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "${'"
+        """.trimIndent()
+    }
+}
+}target"
+        """.trimIndent()
+    }
+}
+}HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" ]; then
+              if [ ! -d "${'/.git" ] && [ ! -f "\$target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "${'/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ] && [ ! -f "${'/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "${'" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "${'" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "${'"
+        """.trimIndent()
+    }
+}
+}target"
+        """.trimIndent()
+    }
+}
+}HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ] && [ ! -f "${'/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "\$target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "${'/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "${'" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "${'" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "${'"
+        """.trimIndent()
+    }
+}
+}target"
+        """.trimIndent()
+    }
+}
+}HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target/.git" ]; then
+                printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20
+              fi
+              origin=\$(git -C "${'" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "${'/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "\$HOME/Projects" || exit 22
+              git clone '$ssh' "${'" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "${'"
+        """.trimIndent()
+    }
+}
+}target"
+        """.trimIndent()
+    }
+}
+}HOME/Projects" || exit 22
+              git clone '$ssh' "\$target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" remote get-url origin 2>/dev/null) || exit 21
+              case "\$origin" in
+                '$ssh'|'$https'|'$https.git'|'git://github.com/$repo.git'|'ssh://git@github.com/$repo.git') ;;
+                *) printf 'POCKETDEV_IMPORT_CONFLICT\n'; exit 20 ;;
+              esac
+            else
+              mkdir -p "${'/Projects" || exit 22
+              git clone '$ssh' "${'" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "${'"
+        """.trimIndent()
+    }
+}
+}target"
+        """.trimIndent()
+    }
+}
+}HOME/Projects" || exit 22
+              git clone '$ssh' "${'" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "\$target"
+        """.trimIndent()
+    }
+}
+}target" || exit 23
+            fi
+            printf 'POCKETDEV_IMPORT_OK:%s\n' "${'"
+        """.trimIndent()
+    }
+}
+}target"
         """.trimIndent()
     }
 }
