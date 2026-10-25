@@ -5,7 +5,7 @@ SOURCE="${AE_REPO:-$HOME/projects/automated-engineering}"
 CODEX="${CODEX_BIN:-$HOME/.local/bin/codex}"
 BASE="${AE_RUN_ROOT:-$HOME/.local/state/pocketdev-codex}"
 TASK="${AE_TASK_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/docs/prompts/automated-engineering-e2e.txt}"
-test -d "$SOURCE/.git" || { echo "Missing repo: $SOURCE" >&2; exit 1; }
+git -C "$SOURCE" rev-parse --git-dir >/dev/null 2>&1 || { echo "Missing repo: $SOURCE" >&2; exit 1; }
 test -x "$CODEX" || { echo "Missing Codex: $CODEX" >&2; exit 1; }
 test -s "$TASK" || { echo "Missing task: $TASK" >&2; exit 1; }
 command -v tmux >/dev/null
@@ -30,7 +30,7 @@ trap 'rc=$?; printf "%s\n" "$rc" > "$RUN/exit-code.txt"' EXIT
 "$CODEX" exec --dangerously-bypass-approvals-and-sandbox --json - < "$RUN/prompt.txt" > "$RUN/run.jsonl" 2>&1
 SH
 chmod 700 "$RUN/start.sh"
-tmux new-session -d -s "$SESSION" "bash '$RUN/start.sh'"
+tmux new-session -d -s "$SESSION" bash "$RUN/start.sh"
 printf '%s\n' "$RUN" > "$BASE/ae-latest.txt"
 echo "STARTED $SESSION"
 echo "RUN $RUN"
