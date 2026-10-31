@@ -325,6 +325,7 @@ class PocketDevViewModel(
             testCommand = if (android) editor.actions.firstOrNull { it.id == "test" }?.command ?: editor.testCommand else editor.testCommand,
             buildCommand = if (android) editor.actions.firstOrNull { it.id == "build" }?.command ?: editor.buildCommand else editor.buildCommand,
             githubRepository = editor.githubRepository.trim(), actionProfileId = editor.actionProfileId,
+            commandFavorites = _state.value.projects.firstOrNull { it.id == id }?.commandFavorites.orEmpty(),
         )
         return ProjectCommandBuilder.withEditedActions(base, editor.actions, _state.value.actionProfiles)
             .also { ProjectCommandBuilder.validate(it, _state.value.actionProfiles) }
@@ -697,6 +698,22 @@ class PocketDevViewModel(
         }
     }
 
+    fun setCommandFavorite(projectId: String, command: String, saved: Boolean) {
+        val project = _state.value.projects.firstOrNull { it.id == projectId } ?: return
+        if (command.isBlank()) return
+        val collection = projectRepository.upsert(project.withCommandFavorite(command, saved), makeActive = false)
+        updateState {
+            it.copy(projects = collection.projects, project = displayProject(collection.activeProject, it.sessions))
+        }
+    }
+
+    fun loadCommandFavorite(projectId: String, command: String) {
+        val state = _state.value
+        if (state.project?.id != projectId || command !in state.project.commandFavorites) return
+        if (state.command.running || state.artifact.downloading) return
+        setCommand(command)
+    }
+
     fun setCommand(command: String) {
         val projectId = _state.value.project?.id ?: return
         updateSession(projectId) { it.copy(command = it.command.copy(command = command)) }
@@ -967,3 +984,4 @@ class PocketDevViewModel(
         )
     }
 }
+

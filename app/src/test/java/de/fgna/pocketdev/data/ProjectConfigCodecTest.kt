@@ -70,6 +70,43 @@ class ProjectConfigCodecTest {
     }
 
     @Test
+    fun favoritesSurviveReloadWithExactTextAndProjectIsolation() {
+        val command = "  printf '%s\\n' 'a|b,c;d'\n\n# Grüße ★\n  "
+        val first = ProjectConfig("First", "/srv/first", "", "", id = "first")
+            .withCommandFavorite(command, true)
+            .withCommandFavorite(command, true)
+        val second = ProjectConfig("Second", "/srv/second", "", "", id = "second")
+            .withCommandFavorite("echo second", true)
+        val reloaded = ProjectConfigCodec.decode(ProjectConfigCodec.encode(listOf(first, second)))
+        assertEquals(listOf(command), reloaded[0].commandFavorites)
+        assertEquals(listOf("echo second"), reloaded[1].commandFavorites)
+        val removed = reloaded[0].withCommandFavorite(command, false)
+        val afterRemoval = ProjectConfigCodec.decode(ProjectConfigCodec.encode(listOf(removed, reloaded[1])))
+        assertEquals(emptyList<String>(), afterRemoval[0].commandFavorites)
+        assertEquals(second, afterRemoval[1])
+        assertEquals(first.copy(commandFavorites = emptyList()), afterRemoval[0])
+    }
+
+    @Test
+    fun removingMissingFavoriteAndSavingBlankDoNotChangeProject() {
+        val project = ProjectConfig("Service", "/srv/service", "test", "build", id = "service")
+            .withCommandFavorite("echo keep", true)
+        assertEquals(project, project.withCommandFavorite("echo missing", false))
+        assertEquals(project, project.withCommandFavorite(" \n ", true))
+        assertEquals(project, project.withCommandFavorite(" \n ", false))
+    }
+
+    @Test
+    fun legacyNineFieldRowsPreserveOrderAndDefaultToNoFavorites() {
+        val project = ProjectConfig(
+            "Service", "/srv/service", "test", "build", id = "service",
+            actionOrder = listOf("build", "test"),
+        )
+        val row = ProjectConfigCodec.encode(listOf(project)).split('|').take(9).joinToString("|")
+        assertEquals(listOf(project), ProjectConfigCodec.decode(row))
+    }
+
+    @Test
     fun emptyCollectionRoundTrips() {
         assertEquals(emptyList<ProjectConfig>(), ProjectConfigCodec.decode(ProjectConfigCodec.encode(emptyList())))
     }
@@ -91,3 +128,4 @@ class ProjectConfigCodecTest {
         assertEquals(1, ProjectConfigCodec.decode("not-valid\n$encoded").size)
     }
 }
+

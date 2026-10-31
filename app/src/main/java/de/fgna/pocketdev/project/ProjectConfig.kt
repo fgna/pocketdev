@@ -10,7 +10,14 @@ data class ProjectConfig(
     val actionProfileId: String = ActionProfileTemplates.android.id,
     val customActions: List<ActionDefinition> = emptyList(),
     val actionOrder: List<String> = emptyList(),
-)
+    val commandFavorites: List<String> = emptyList(),
+) {
+    fun withCommandFavorite(command: String, saved: Boolean): ProjectConfig {
+        if (command.isBlank()) return this
+        val remaining = commandFavorites.filterNot { it == command }
+        return copy(commandFavorites = if (saved) (commandFavorites + command).distinct() else remaining)
+    }
+}
 
 enum class ProjectAction {
     GIT_STATUS,
@@ -125,3 +132,4 @@ object ProjectCommandBuilder {
 
     fun shellQuote(value: String): String = "'" + value.replace("'", "'\"'\"'") + "'"
 }
+
