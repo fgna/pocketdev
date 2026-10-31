@@ -114,6 +114,8 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                 onDownloadArtifact = vm::downloadLatestApk,
                 onOpenArtifact = { path -> openApk(context, path) },
                 onCommandChange = vm::setCommand,
+                onCommandFavoriteChange = vm::setCommandFavorite,
+                onLoadCommandFavorite = vm::loadCommandFavorite,
                 onRun = runWithLanPermission,
                 onProjectHome = { if (vm.prepareProjectHome()) runWithLanPermission() },
                 onParentDirectory = { if (vm.prepareParentDirectory()) runWithLanPermission() },
@@ -270,6 +272,8 @@ private fun PocketDevHome(
     onDownloadArtifact: () -> Unit,
     onOpenArtifact: (String) -> Unit,
     onCommandChange: (String) -> Unit,
+    onCommandFavoriteChange: (String, String, Boolean) -> Unit,
+    onLoadCommandFavorite: (String, String) -> Unit,
     onRun: () -> Unit,
     onProjectHome: () -> Unit,
     onParentDirectory: () -> Unit,
@@ -457,6 +461,15 @@ private fun PocketDevHome(
                             "cwd · $workingDirectory",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (project != null) {
+                        CommandFavorites(
+                            project = project,
+                            command = execution.command,
+                            canLoad = !busy,
+                            onFavoriteChange = onCommandFavoriteChange,
+                            onLoad = onLoadCommandFavorite,
                         )
                     }
                     OutlinedTextField(
@@ -746,3 +759,4 @@ private fun openGitHubIssueDraft(context: Context, repository: String, title: St
     val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     runCatching { context.startActivity(intent) }.onFailure { Toast.makeText(context, "Could not open GitHub: ${it.message}", Toast.LENGTH_LONG).show() }
 }
+
