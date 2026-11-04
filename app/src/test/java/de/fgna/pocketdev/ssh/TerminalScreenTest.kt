@@ -33,6 +33,21 @@ class TerminalScreenTest {
         assertTrue(screen.render().contains("!"))
     }
 
+    @Test fun resizeUpdatesWrappingAndBoundsWithoutLosingVisibleContent() {
+        val screen = TerminalScreen(20, 5)
+        screen.accept("kept")
+        screen.resize(30, 6)
+        screen.accept("\u001b[6;30H!")
+        assertTrue(screen.render().lines().last().endsWith("!"))
+        assertTrue(screen.render().startsWith("kept"))
+
+        screen.resize(20, 5)
+        assertTrue(screen.render().lines().size <= 5)
+        assertTrue(screen.render().lines().all { it.length <= 20 })
+        screen.accept("\u001b[5;20H?")
+        assertTrue(screen.render().lines().last().endsWith("?"))
+    }
+
     @Test fun titleEscapeIsNotDisplayed() {
         val screen = TerminalScreen(20, 5)
         screen.accept("\u001b]0;secret title\u0007hello")
