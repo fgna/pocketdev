@@ -5,7 +5,9 @@ package de.fgna.pocketdev.ssh
  * used by common terminal CLIs; unsupported controls are ignored instead of displayed.
  * Pure Kotlin, so rendering can be independently tested without an Android device.
  */
-class TerminalScreen(private val columns: Int = 80, private val rows: Int = 24) {
+class TerminalScreen(columns: Int = 80, rows: Int = 24) {
+    private var columns = columns
+    private var rows = rows
     init { require(columns in 20..500 && rows in 5..300) }
     private var cells = Array(rows) { CharArray(columns) { ' ' } }
     private var savedMain: Array<CharArray>? = null
@@ -58,6 +60,31 @@ class TerminalScreen(private val columns: Int = 80, private val rows: Int = 24) 
             }
         }
         return render()
+    }
+
+    @Synchronized fun resize(newColumns: Int, newRows: Int): String {
+        require(newColumns in 20..500 && newRows in 5..300)
+        if (newColumns == columns && newRows == rows) return render()
+
+        cells = resizeBuffer(cells, newColumns, newRows)
+        savedMain = savedMain?.let { resizeBuffer(it, newColumns, newRows) }
+        columns = newColumns
+        rows = newRows
+        row = row.coerceAtMost(rows - 1)
+        col = col.coerceAtMost(columns - 1)
+        savedRow = savedRow.coerceAtMost(rows - 1)
+        savedCol = savedCol.coerceAtMost(columns - 1)
+        return render()
+    }
+
+    private fun resizeBuffer(
+        source: Array<CharArray>,
+        newColumns: Int,
+        newRows: Int,
+    ): Array<CharArray> = Array(newRows) { sourceRow ->
+        CharArray(newColumns) { sourceColumn ->
+            source.getOrNull(sourceRow)?.getOrNull(sourceColumn) ?: ' '
+        }
     }
 
     private fun newline() {
