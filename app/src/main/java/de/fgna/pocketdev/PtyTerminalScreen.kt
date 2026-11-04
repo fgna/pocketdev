@@ -108,11 +108,13 @@ fun PtyTerminalScreen(
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             TextButton(enabled = running && columns > 40, onClick = {
                 columns -= 10
+                output = display.resize(columns, rows)
                 terminal.resize(columns, rows)
             }) { Text("− cols") }
             Text("$columns × $rows", modifier = Modifier.padding(top = 12.dp))
             TextButton(enabled = running && columns < 160, onClick = {
                 columns += 10
+                output = display.resize(columns, rows)
                 terminal.resize(columns, rows)
             }) { Text("+ cols") }
         }
