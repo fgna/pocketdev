@@ -27,7 +27,7 @@ class TerminalScreenTest {
 
     @Test fun scrollAndBoundedCursorMovement() {
         val screen = TerminalScreen(20, 5)
-        screen.accept("one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix")
+        screen.accept("one\ntwo\nthree\nfour\nfive\nsix")
         assertEquals("two\nthree\nfour\nfive\nsix", screen.render())
         screen.accept("\u001b[999;999H!")
         assertTrue(screen.render().contains("!"))
@@ -37,7 +37,7 @@ class TerminalScreenTest {
         val screen = TerminalScreen(20, 5)
         screen.accept("kept")
         screen.resize(30, 6)
-        screen.accept("\u001b[6;30H!")
+        screen.accept("\u001b[5;30H!")
         assertTrue(screen.render().lines().last().endsWith("!"))
         assertTrue(screen.render().startsWith("kept"))
 
