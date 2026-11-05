@@ -89,6 +89,7 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     val anyCommandRunning = state.sessions.values.any { it.command.running }
     val anyArtifactDownloading = state.sessions.values.any { it.artifact.downloading }
     var showFiles by remember { mutableStateOf(false) }
+    var showTerminal by remember { mutableStateOf(false) }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -116,7 +117,13 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        if (showFiles) {
+        if (showTerminal && state.profile != null && state.project != null) {
+            PtyTerminalScreen(
+                profile = state.profile!!,
+                projectPath = state.project!!.remotePath,
+                onBack = { showTerminal = false },
+            )
+        } else if (showFiles) {
             FileTransferScreen(onBack = { showFiles = false })
         } else {
             PocketDevApp(vm)
@@ -129,6 +136,13 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
                     .padding(end = 166.dp, top = 9.dp),
             ) {
                 Text("Files")
+            }
+
+            if (!command.running && state.profile != null && state.project != null && state.hasStoredSecret) {
+                TextButton(
+                    onClick = { showTerminal = true },
+                    modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 16.dp, bottom = 104.dp),
+                ) { Text("Terminal · PTY") }
             }
 
             if (command.running) {
