@@ -250,7 +250,9 @@ class SshjCommandExecutor : SshCommandExecutor {
             exec 3<&0
             sudo() {
               command sudo -S -p '$SUDO_PROMPT' -v <&3 || return
-              command sudo -n "${'
+              command sudo -n "$@"
+            }
+        """.trimIndent()
         private val activeCommands = ConcurrentHashMap<String, ActiveCommand>()
         private val activeUserCommands = ConcurrentHashMap.newKeySet<String>()
         private val activeCommandListeners = ConcurrentHashMap.newKeySet<(Int) -> Unit>()
