@@ -347,7 +347,6 @@ private fun PocketDevHome(
                 sessions = state.sessions,
                 onSelect = onSelectProject,
                 onOpenTab = onOpenTab,
-                onCloseTab = onCloseTab,
                 onAddProject = onProjects,
             )
         },
@@ -365,6 +364,14 @@ private fun PocketDevHome(
                     Row(modifier = Modifier.fillMaxWidth()) {
                         PocketDevSectionLabel("Workspace", modifier = Modifier.weight(1f))
                         if (state.projects.size > 1) Text("${state.projects.size} projects", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        state.activeTabId?.let { activeTabId ->
+                            val tabBusy = state.sessions[activeTabId]?.let { it.command.running || it.artifact.downloading } == true
+                            TextButton(
+                                onClick = { onCloseTab(activeTabId) },
+                                enabled = !tabBusy && state.pendingProjectCreate?.tabId != activeTabId &&
+                                    state.pendingHostKeyProjectId != activeTabId,
+                            ) { Text("Close tab", style = MaterialTheme.typography.labelSmall) }
+                        }
                     }
                     when {
                         profile == null -> Text("Configure an SSH server to start.", style = MaterialTheme.typography.bodyMedium)
@@ -615,7 +622,6 @@ private fun BottomProjectTabs(
     sessions: Map<String, ProjectSessionState>,
     onSelect: (String) -> Unit,
     onOpenTab: (String) -> Unit,
-    onCloseTab: (String) -> Unit,
     onAddProject: () -> Unit,
 ) {
     val titles = WorkspaceTabs.labels(tabs.tabs, projects)
@@ -641,9 +647,7 @@ private fun BottomProjectTabs(
                     } else {
                         OutlinedButton(onClick = { onSelect(tab.tabId) }) { Text(label) }
                     }
-                    // Keep running tabs open until the execution finishes.
-                    if (!running) TextButton(onClick = { onCloseTab(tab.tabId) }) { Text("×") }
-                }
+                 }
                 val currentProjectId = tabs.activeTab?.projectId
                 if (currentProjectId != null) {
                     OutlinedButton(onClick = { onOpenTab(currentProjectId) }) { Text("+ Tab") }
