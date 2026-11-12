@@ -422,7 +422,9 @@ class PocketDevViewModel(
     fun closeTab(tabId: String) {
         val state = _state.value
         val current = state.sessions[tabId]
-        if (current?.command?.running == true || current?.artifact?.downloading == true) return
+        if (current?.command?.running == true || current?.artifact?.downloading == true ||
+            state.pendingProjectCreate?.tabId == tabId || state.pendingHostKeyProjectId == tabId
+        ) return
         val next = state.tabSelection.close(tabId)
         if (next == state.tabSelection) return
         val activeProject = state.projects.firstOrNull { it.id == next.activeTab?.projectId }
@@ -693,6 +695,10 @@ class PocketDevViewModel(
 
     fun createPendingProject() {
         val request = _state.value.pendingProjectCreate ?: return
+        if (_state.value.tabSelection.tabs.none { it.id == request.tabId && it.projectId == request.projectId }) {
+            dismissProjectCreate()
+            return
+        }
         val project = _state.value.projects.firstOrNull { it.id == request.projectId } ?: run {
             dismissProjectCreate()
             return
@@ -875,7 +881,9 @@ class PocketDevViewModel(
                         current.copy(command = current.command.copy(connectionError = stderr.trim().ifBlank { "Could not inspect the project folder." }))
                     }
                     stdout.contains(ProjectProvisioning.MISSING_MARKER) -> updateState {
-                        it.copy(pendingProjectCreate = ProjectCreateRequest(projectId = projectId, command = commandText, tabId = tabId))
+                        if (it.tabSelection.tabs.any { tab -> tab.id == tabId }) {
+                            it.copy(pendingProjectCreate = ProjectCreateRequest(projectId = projectId, command = commandText, tabId = tabId))
+                        } else it
                     }
                     stdout.contains(ProjectProvisioning.EXISTS_MARKER) -> runCommandFor(tabId, skipProjectCheck = true)
                     else -> updateSession(tabId) { current ->
