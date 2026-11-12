@@ -59,8 +59,11 @@ class PtyTerminalSession {
             val remote = channel.startShell()
             shell = remote
             input = remote.outputStream
-            // Enter the project's directory in the remote login shell.
-            send("cd " + quote(directory) + "\n")
+            // Never leave users in $HOME when the project directory is missing.
+            // A failed initial write also aborts the PTY instead of showing a misleading shell.
+            check(send(projectStartupCommand(directory))) {
+                "Could not initialize the remote project directory."
+            }
             // Reader buffers split UTF-8 sequences across SSH network chunks.
             // Decoding each byte chunk independently corrupts Unicode terminal output.
             val reader = remote.inputStream.reader(Charsets.UTF_8)
@@ -109,5 +112,13 @@ class PtyTerminalSession {
         runCatching { ssh?.disconnect() }
     }
 
-    private fun quote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
+    companion object {
+        internal fun projectStartupCommand(directory: String): String {
+            require(directory.startsWith("/") && '\\n' !in directory && '\\r' !in directory) {
+                "Project directory must be a valid absolute path."
+            }
+            val quoted = "'" + directory.replace("'", "'\\\\''") + "'"
+            return "cd $quoted || { printf 'PocketDev: project directory unavailable\\n'; exit 1; }\\n"
+        }
+    }
 }
