@@ -25,8 +25,9 @@ data class PtyTerminalState(
 
 /** Retains a tab's live PTY and screen through Android Activity recreation. */
 class PtyTerminalViewModel(application: Application) : AndroidViewModel(application) {
-    private val session = PtyTerminalSession()
-    private val screen = TerminalScreen()
+    private var session = PtyTerminalSession()
+    private var screen = TerminalScreen()
+    @Volatile private var generation = 0L
     private val _state = MutableStateFlow(PtyTerminalState())
     val state = _state.asStateFlow()
     private var identity: String? = null
@@ -34,7 +35,12 @@ class PtyTerminalViewModel(application: Application) : AndroidViewModel(applicat
     fun start(profile: SshProfile, directory: String) {
         val id = "${profile.host}:${profile.port}:${profile.username}:$directory"
         if (identity == id) return
-        if (identity != null) session.close()
+        session.close()
+        session = PtyTerminalSession()
+        screen = TerminalScreen()
+        val current = session
+        val currentScreen = screen
+        val token = ++generation
         identity = id
         _state.value = PtyTerminalState(started = true, running = true)
         viewModelScope.launch {
@@ -42,14 +48,19 @@ class PtyTerminalViewModel(application: Application) : AndroidViewModel(applicat
                 val secret = withContext(Dispatchers.IO) {
                     SshProfileRepository(getApplication()).loadSecret()
                 } ?: error("No SSH credentials stored")
-                session.run(profile, secret, directory) { chunk ->
-                    val rendered = screen.accept(chunk)
-                    _state.update { it.copy(output = rendered) }
+                if (token != generation) return@launch
+                current.run(profile, secret, directory) { chunk ->
+                    val rendered = currentScreen.accept(chunk)
+                    if (token == generation) _state.update { it.copy(output = rendered) }
                 }
-                _state.update { it.copy(running = false, output = it.output + "\n[SSH terminal closed]") }
+                if (token == generation) {
+                    _state.update { it.copy(running = false, output = it.output + "\n[SSH terminal closed]") }
+                }
             } catch (error: Exception) {
-                _state.update {
-                    it.copy(running = false, error = error.message ?: "SSH terminal failed")
+                if (token == generation) {
+                    _state.update {
+                        it.copy(running = false, error = error.message ?: "SSH terminal failed")
+                    }
                 }
             }
         }
@@ -57,8 +68,11 @@ class PtyTerminalViewModel(application: Application) : AndroidViewModel(applicat
 
     /** All SSH output-stream operations execute away from Compose's main thread. */
     fun send(text: String, clearOnSuccess: (() -> Unit)? = null) {
+        val current = session
+        val token = generation
         viewModelScope.launch {
-            val accepted = withContext(Dispatchers.IO) { session.send(text) }
+            val accepted = withContext(Dispatchers.IO) { current.send(text) }
+            if (token != generation) return@launch
             if (accepted) clearOnSuccess?.invoke()
             else _state.update { it.copy(error = "Terminal input was not sent. Check the SSH connection.") }
         }
@@ -67,14 +81,19 @@ class PtyTerminalViewModel(application: Application) : AndroidViewModel(applicat
     fun interrupt() = send("\u0003")
 
     fun resize(columns: Int, rows: Int) {
+        val current = session
+        val currentScreen = screen
+        val token = generation
         viewModelScope.launch {
-            val resized = withContext(Dispatchers.IO) { session.resize(columns, rows) }
-            if (resized) _state.update { it.copy(columns = columns, rows = rows, output = screen.resize(columns, rows)) }
+            val resized = withContext(Dispatchers.IO) { current.resize(columns, rows) }
+            if (token != generation) return@launch
+            if (resized) _state.update { it.copy(columns = columns, rows = rows, output = currentScreen.resize(columns, rows)) }
             else _state.update { it.copy(error = "Terminal resize failed.") }
         }
     }
 
     fun close() {
+        generation++
         session.close()
         identity = null
         _state.update { it.copy(running = false) }
