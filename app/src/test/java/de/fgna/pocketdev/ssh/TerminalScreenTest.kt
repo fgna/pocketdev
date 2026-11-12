@@ -48,6 +48,41 @@ class TerminalScreenTest {
         assertTrue(screen.render().lines().last().endsWith("?"))
     }
 
+    @Test fun writingToLastColumnDoesNotScrollUntilNextCharacter() {
+        val screen = TerminalScreen(20, 5)
+        screen.accept("one\\ntwo\\nthree\\nfour\\n".replace("\\n", "\n"))
+        screen.accept("x".repeat(20))
+        // The last cell is still on row five; no early scroll should occur.
+        assertEquals("one\ntwo\nthree\nfour\n" + "x".repeat(20), screen.render())
+        screen.accept("y")
+        assertEquals("two\nthree\nfour\n" + "x".repeat(20) + "\ny", screen.render())
+    }
+
+    @Test fun cursorMovementAndCarriageReturnCancelPendingWrap() {
+        val screen = TerminalScreen(20, 5)
+        screen.accept("a".repeat(20))
+        screen.accept("\rZ")
+        assertEquals("Z" + "a".repeat(19), screen.render())
+        screen.accept("\u001b[1;20H!")
+        assertEquals("Z" + "a".repeat(18) + "!", screen.render())
+        screen.accept("\u001b[1;1H?")
+        assertEquals("?" + "a".repeat(18) + "!", screen.render())
+    }
+
+    @Test fun sgrDoesNotCancelPendingWrap() {
+        val screen = TerminalScreen(20, 5)
+        screen.accept("q".repeat(20))
+        screen.accept("\u001b[31mX")
+        assertEquals("q".repeat(20) + "\nX", screen.render())
+    }
+
+    @Test fun unknownStatusQueriesDoNotCancelPendingWrap() {
+        val screen = TerminalScreen(20, 5)
+        screen.accept("a".repeat(20))
+        screen.accept("\u001b[5nX")
+        assertEquals("a".repeat(20) + "\nX", screen.render())
+    }
+
     @Test fun titleEscapeIsNotDisplayed() {
         val screen = TerminalScreen(20, 5)
         screen.accept("\u001b]0;secret title\u0007hello")
