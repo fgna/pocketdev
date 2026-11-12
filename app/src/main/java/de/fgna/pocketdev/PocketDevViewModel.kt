@@ -18,6 +18,8 @@ import de.fgna.pocketdev.project.ActionDefinition
 import de.fgna.pocketdev.project.ActionProfile
 import de.fgna.pocketdev.project.ActionProfileTemplates
 import de.fgna.pocketdev.project.ActionProfileResolver
+import de.fgna.pocketdev.project.WorkspaceTab
+import de.fgna.pocketdev.project.WorkspaceTabSelection
 import de.fgna.pocketdev.ssh.AuthMode
 import de.fgna.pocketdev.ssh.CommandEvent
 import de.fgna.pocketdev.ssh.CommandInputHandle
@@ -64,6 +66,7 @@ data class ProjectSessionState(
 data class ProjectCreateRequest(
     val projectId: String,
     val command: String,
+    val tabId: String,
 )
 
 enum class GitKeyStatus {
@@ -82,6 +85,7 @@ data class PocketDevState(
     val projects: List<ProjectConfig> = emptyList(),
     val project: ProjectConfig? = null,
     val sessions: Map<String, ProjectSessionState> = emptyMap(),
+    val tabSelection: WorkspaceTabSelection = WorkspaceTabSelection(emptyList(), null),
     val projectEditorOpen: Boolean = false,
     val projectEditorId: String? = null,
     val projectEditor: ProjectEditorState = ProjectEditorState(),
@@ -96,17 +100,20 @@ data class PocketDevState(
     val quickImportBusy: Boolean = false,
     val quickImportError: String? = null,
 ) {
+    val activeTabId: String?
+        get() = tabSelection.activeTabId
+
     val command: CommandUiState
-        get() = project?.let { sessions[it.id]?.command } ?: CommandUiState(command = "pwd")
+        get() = activeTabId?.let { sessions[it]?.command } ?: CommandUiState(command = "pwd")
 
     val artifact: ArtifactDownloadState
-        get() = project?.let { sessions[it.id]?.artifact } ?: ArtifactDownloadState()
+        get() = activeTabId?.let { sessions[it]?.artifact } ?: ArtifactDownloadState()
 
     val currentWorkingDirectory: String?
-        get() = project?.let { sessions[it.id]?.workingDirectory ?: it.remotePath }
+        get() = project?.let { configured -> activeTabId?.let { sessions[it]?.workingDirectory } ?: configured.remotePath }
 
     val currentGitBranch: String?
-        get() = project?.let { sessions[it.id]?.gitBranch }
+        get() = activeTabId?.let { sessions[it]?.gitBranch }
 }
 
 class PocketDevViewModel(
@@ -122,8 +129,8 @@ class PocketDevViewModel(
     private val _state = MutableStateFlow(loadInitialState())
     val state: StateFlow<PocketDevState> = _state.asStateFlow()
 
-    fun captureCommandInput(projectId: String): CommandInputHandle? =
-        if (_state.value.sessions[projectId]?.command?.running == true) executor.captureInput(projectId) else null
+    fun captureCommandInput(tabId: String): CommandInputHandle? =
+        if (_state.value.sessions[tabId]?.command?.running == true) executor.captureInput(tabId) else null
 
     init {
         refreshGitKeyStatus()
