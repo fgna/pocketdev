@@ -33,6 +33,30 @@ class CodexProgressTest {
         assertEquals(130, state.exitCode)
     }
 
+    @Test fun duplicateProjectTabsKeepIndependentProgressAndInputState() {
+        val first = CommandStateReducer.reduce(CommandUiState(command = "codex exec --json first"), CommandEvent.Connecting)
+        val second = CommandStateReducer.reduce(CommandUiState(command = "codex exec --json second"), CommandEvent.Connecting)
+        val firstOutput = CommandStateReducer.reduce(
+            first,
+            CommandEvent.Output(OutputStreamKind.STDOUT, "{\"type\":\"item.started\",\"item\":{\"type\":\"command_execution\"}}\\n".replace("\\n", "\n")),
+        )
+        assertEquals("Executing command", firstOutput.codexAction)
+        assertEquals("Connecting", second.codexAction)
+        assertEquals("", second.stdout)
+        assertEquals("", second.pendingCodexLine)
+    }
+
+    @Test fun elapsedAndIdleTimesUseRealOutputNotAssumedHeartbeats() {
+        val connected = CommandStateReducer.reduce(CommandUiState(command = "codex exec --json hello"), CommandEvent.Connecting)
+        assertNotNull(connected.startedAtMs)
+        assertNull(connected.lastActivityAtMs)
+        val withOutput = CommandStateReducer.reduce(connected, CommandEvent.Output(OutputStreamKind.STDOUT, "partial"))
+        assertNotNull(withOutput.lastActivityAtMs)
+        val finished = CommandStateReducer.reduce(withOutput, CommandEvent.Completed(1))
+        assertEquals(withOutput.lastActivityAtMs, finished.lastActivityAtMs)
+        assertEquals(1, finished.exitCode)
+    }
+
     @Test fun genericCommandsKeepRawStreaming() {
         val state = CommandStateReducer.reduce(CommandUiState(command = "echo hello"), CommandEvent.Output(OutputStreamKind.STDOUT, "hello"))
         assertEquals("hello", state.stdout)
