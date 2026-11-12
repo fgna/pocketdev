@@ -7,11 +7,12 @@ import de.fgna.pocketdev.data.SshProfileRepository
 import de.fgna.pocketdev.ssh.PtyTerminalSession
 import de.fgna.pocketdev.ssh.SshProfile
 import de.fgna.pocketdev.ssh.TerminalScreen
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 data class PtyTerminalState(
@@ -35,7 +36,9 @@ class PtyTerminalViewModel(application: Application) : AndroidViewModel(applicat
     fun start(profile: SshProfile, directory: String) {
         val id = "${profile.host}:${profile.port}:${profile.username}:$directory"
         if (identity == id) return
-        session.close()
+        val previous = session
+        // Closing an SSH socket may block; never perform it from a Compose callback.
+        viewModelScope.launch(Dispatchers.IO) { previous.close() }
         session = PtyTerminalSession()
         screen = TerminalScreen()
         val current = session
@@ -94,13 +97,17 @@ class PtyTerminalViewModel(application: Application) : AndroidViewModel(applicat
 
     fun close() {
         generation++
-        session.close()
+        val closing = session
         identity = null
         _state.update { it.copy(running = false) }
+        viewModelScope.launch(Dispatchers.IO) { closing.close() }
     }
 
     override fun onCleared() {
-        session.close()
+        // viewModelScope is cancelled at the end of onCleared; cleanup needs
+        // its own short-lived IO coroutine so it cannot block the UI thread.
+        val closing = session
+        CoroutineScope(Dispatchers.IO).launch { closing.close() }
         super.onCleared()
     }
 }
