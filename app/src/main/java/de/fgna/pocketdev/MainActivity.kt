@@ -315,7 +315,7 @@ private fun PocketDevHome(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text("PocketDev", style = MaterialTheme.typography.titleLarge)
+                            Text(project?.name?.takeIf { it.isNotBlank() } ?: "PocketDev", style = MaterialTheme.typography.titleLarge)
                             PocketDevContextStrip(headerLabel, state = headerState)
                         }
                         Spacer(modifier = Modifier.weight(1f))
@@ -332,6 +332,7 @@ private fun PocketDevHome(
                 activeProjectId = project?.id,
                 sessions = state.sessions,
                 onSelect = onSelectProject,
+                onAddProject = onProjects,
             )
         },
     ) { innerPadding ->
@@ -354,6 +355,7 @@ private fun PocketDevHome(
                         project == null -> {
                             PocketDevCompactMeta("Server", "${profile.username}@${profile.host}:${profile.port}")
                             Text("Add a remote project to enable one-tap actions.", style = MaterialTheme.typography.bodyMedium)
+                            OutlinedButton(onClick = onProjects) { Text("Add first project") }
                         }
                         else -> {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -593,6 +595,7 @@ private fun BottomProjectTabs(
     activeProjectId: String?,
     sessions: Map<String, ProjectSessionState>,
     onSelect: (String) -> Unit,
+    onAddProject: () -> Unit,
 ) {
     Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp, shadowElevation = 6.dp) {
         Column {
@@ -603,7 +606,7 @@ private fun BottomProjectTabs(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 if (projects.isEmpty()) {
-                    TextButton(onClick = {}) { Text("No projects") }
+                    TextButton(onClick = onAddProject) { Text("Add project") }
                 } else {
                     projects.forEach { tabProject ->
                         val session = sessions[tabProject.id]
