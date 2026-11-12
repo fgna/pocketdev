@@ -909,11 +909,7 @@ class PocketDevViewModel(
     ): ProjectConfig? = project?.let { configured ->
         val session = sessions[configured.id]
         val cwd = session?.workingDirectory?.takeIf { it.startsWith("/") }
-        val branch = session?.gitBranch?.takeIf { it.isNotBlank() } ?: "—"
-        configured.copy(
-            name = "${configured.name} · branch · $branch",
-            remotePath = cwd ?: configured.remotePath,
-        )
+        configured.copy(remotePath = cwd ?: configured.remotePath)
     }
 
     private fun persistSession(projectId: String, session: ProjectSessionState) {
