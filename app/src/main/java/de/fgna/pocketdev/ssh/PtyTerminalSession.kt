@@ -114,11 +114,11 @@ class PtyTerminalSession {
 
     companion object {
         internal fun projectStartupCommand(directory: String): String {
-            require(directory.startsWith("/") && '\\n' !in directory && '\\r' !in directory) {
+            require(directory.startsWith("/") && '\n' !in directory && '\r' !in directory) {
                 "Project directory must be a valid absolute path."
             }
-            val quoted = "'" + directory.replace("'", "'\\\\''") + "'"
-            return "cd $quoted || { printf 'PocketDev: project directory unavailable\\n'; exit 1; }\\n"
+            val quoted = "'" + directory.replace("'", "'\\''") + "'"
+            return "cd $quoted || { printf 'PocketDev: project directory unavailable\n'; exit 1; }\n"
         }
     }
 }
