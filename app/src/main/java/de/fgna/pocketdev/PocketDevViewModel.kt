@@ -883,38 +883,44 @@ class PocketDevViewModel(
         _state.update(transform)
     }
 
-    private fun updateSession(projectId: String, transform: (ProjectSessionState) -> ProjectSessionState) {
+    private fun updateSession(tabId: String, transform: (ProjectSessionState) -> ProjectSessionState) {
         _state.update { state ->
-            val current = state.sessions[projectId] ?: ProjectSessionState()
+            // Late callbacks from a closed tab must never recreate its session.
+            if (state.tabSelection.tabs.none { it.id == tabId }) return@update state
+            val current = state.sessions[tabId] ?: ProjectSessionState()
             val updated = transform(current)
-            val sessions = state.sessions + (projectId to updated)
-            val displayedProject = if (state.project?.id == projectId) {
-                displayProject(state.projects.firstOrNull { it.id == projectId } ?: state.project, sessions)
-            } else {
-                state.project
-            }
+            val sessions = state.sessions + (tabId to updated)
+            val displayedProject = if (state.activeTabId == tabId) {
+                displayProject(state.projects.firstOrNull { it.id == state.tabSelection.activeTab?.projectId }, sessions, tabId)
+            } else state.project
             state.copy(sessions = sessions, project = displayedProject)
         }
-        _state.value.sessions[projectId]?.let { persistSession(projectId, it) }
+        _state.value.sessions[tabId]?.let { persistSession(tabId, it) }
     }
 
     private fun ensureSessions(
         projects: List<ProjectConfig>,
         current: Map<String, ProjectSessionState>,
-    ): Map<String, ProjectSessionState> = projects.associate { project ->
-        val existing = current[project.id] ?: restoreSession(project.id, project.remotePath)
-        project.id to if (existing.workingDirectory.isNullOrBlank()) {
-            existing.copy(workingDirectory = project.remotePath)
-        } else {
-            existing
+        tabs: WorkspaceTabSelection = _state.value.tabSelection,
+    ): Map<String, ProjectSessionState> {
+        val byId = projects.associateBy { it.id }
+        return tabs.tabs.filter { it.projectId in byId }.associate { tab ->
+            val path = byId.getValue(tab.projectId).remotePath
+            val existing = current[tab.id] ?: restoreSession(tab.id, path)
+            tab.id to if (existing.workingDirectory.isNullOrBlank()) {
+                existing.copy(workingDirectory = path)
+            } else {
+                existing
+            }
         }
     }
 
     private fun displayProject(
         project: ProjectConfig?,
         sessions: Map<String, ProjectSessionState>,
+        tabId: String? = _state.value.activeTabId,
     ): ProjectConfig? = project?.let { configured ->
-        val session = sessions[configured.id]
+        val session = sessions[tabId]
         val cwd = session?.workingDirectory?.takeIf { it.startsWith("/") }
         configured.copy(remotePath = cwd ?: configured.remotePath)
     }
@@ -971,19 +977,45 @@ class PocketDevViewModel(
         ).forEach { key -> savedStateHandle.remove<Any>(prefix + key) }
     }
 
+    private fun restoreTabs(projects: List<ProjectConfig>, activeProjectId: String?): WorkspaceTabSelection {
+        val ids = savedStateHandle.get<ArrayList<String>>("tabs.ids")
+        val projectIds = savedStateHandle.get<ArrayList<String>>("tabs.projects")
+        val validIds = projects.map { it.id }.toSet()
+        if (ids != null && projectIds != null && ids.size == projectIds.size &&
+            ids.distinct().size == ids.size && ids.all { it.isNotBlank() }) {
+            val tabs = ids.zip(projectIds).map { (id, projectId) -> WorkspaceTab(id, projectId) }
+                .filter { it.projectId in validIds }
+            if (tabs.isNotEmpty()) {
+                val activeId = savedStateHandle.get<String>("tabs.active")
+                    ?.takeIf { id -> tabs.any { it.id == id } } ?: tabs.first().id
+                return WorkspaceTabSelection(tabs, activeId)
+            }
+        }
+        return WorkspaceTabSelection.fromProjects(projects, activeProjectId)
+    }
+
+    private fun persistTabs(tabs: WorkspaceTabSelection) {
+        savedStateHandle["tabs.ids"] = ArrayList(tabs.tabs.map { it.id })
+        savedStateHandle["tabs.projects"] = ArrayList(tabs.tabs.map { it.projectId })
+        savedStateHandle["tabs.active"] = tabs.activeTabId
+    }
+
     private fun loadInitialState(): PocketDevState {
         val stored = repository.load()
         val projectCollection = projectRepository.load()
-        val sessions = projectCollection.projects.associate { project ->
-            project.id to restoreSession(project.id, project.remotePath)
+        val tabs = restoreTabs(projectCollection.projects, projectCollection.activeProjectId)
+        val sessions = tabs.tabs.associate { tab ->
+            val project = projectCollection.projects.first { it.id == tab.projectId }
+            tab.id to restoreSession(tab.id, project.remotePath)
         }
         return PocketDevState(
             actionProfiles = actionProfileRepository.load(),
             profile = stored?.profile,
             hasStoredSecret = stored?.hasSecret == true,
             projects = projectCollection.projects,
-            project = displayProject(projectCollection.activeProject, sessions),
+            project = displayProject(projectCollection.projects.firstOrNull { it.id == tabs.activeTab?.projectId }, sessions, tabs.activeTabId),
             sessions = sessions,
+            tabSelection = tabs,
         )
     }
 }
