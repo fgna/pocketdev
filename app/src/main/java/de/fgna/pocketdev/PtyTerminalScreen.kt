@@ -59,11 +59,11 @@ fun PtyTerminalScreen(
         try {
             val secret = withContext(Dispatchers.IO) { SshProfileRepository(context).loadSecret() }
                 ?: error("No SSH credentials stored")
-            val code = terminal.run(profile, secret, projectPath) { chunk ->
+            terminal.run(profile, secret, projectPath) { chunk ->
                 // Display best-effort plain text; PTY itself preserves interactive input.
                 output = display.accept(chunk)
             }
-            output += "\n[Session ended: $code]"
+            output += "\n[SSH terminal closed]"
         } catch (error: Exception) {
             output += "\n[Terminal error: ${error.message}]"
         } finally {
