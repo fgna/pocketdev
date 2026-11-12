@@ -84,8 +84,8 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val command = state.command
-    val activeProjectId = state.project?.id.orEmpty()
-    var inputTarget by remember(activeProjectId) { mutableStateOf<CommandInputHandle?>(null) }
+    val activeTabId = state.activeTabId.orEmpty()
+    var inputTarget by remember(activeTabId) { mutableStateOf<CommandInputHandle?>(null) }
     val anyCommandRunning = state.sessions.values.any { it.command.running }
     val anyArtifactDownloading = state.sessions.values.any { it.artifact.downloading }
     var showFiles by remember { mutableStateOf(false) }
@@ -111,7 +111,7 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
 
     suspend fun cancelActiveCommand(): Boolean = withContext(Dispatchers.IO) {
         runCatching {
-            activeProjectId.isNotBlank() && SshjCommandExecutor.cancelMatching(activeProjectId)
+            activeTabId.isNotBlank() && SshjCommandExecutor.cancelMatching(activeTabId)
         }.getOrDefault(false)
     }
 
@@ -140,7 +140,7 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
                         .padding(end = 16.dp, bottom = 104.dp),
                 ) {
                     Button(onClick = {
-                        inputTarget = vm.captureCommandInput(activeProjectId)
+                        inputTarget = vm.captureCommandInput(activeTabId)
                         if (inputTarget == null) {
                             Toast.makeText(context, "Command input is not available yet.", Toast.LENGTH_SHORT).show()
                         }
@@ -164,14 +164,14 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     // Automatic sudo prompts take precedence over an already open manual input dialog.
     // Preserve the manual dialog across normal output/status recompositions.
     if (command.running && command.awaitingSudoPassword) {
-        key(activeProjectId, "sudo") {
+        key(activeTabId, "sudo") {
             UnifiedInputDialog(
                 sudo = true,
                 onSubmit = { password ->
                     scope.launch {
                         val sent = withContext(Dispatchers.IO) {
                             runCatching {
-                                activeProjectId.isNotBlank() && SshjCommandExecutor.sendInputTo(activeProjectId, password)
+                                activeTabId.isNotBlank() && SshjCommandExecutor.sendInputTo(activeTabId, password)
                             }.getOrDefault(false)
                         }
                         if (!sent) {
