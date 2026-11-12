@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -89,7 +90,7 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     val anyCommandRunning = state.sessions.values.any { it.command.running }
     val anyArtifactDownloading = state.sessions.values.any { it.artifact.downloading }
     var showFiles by remember { mutableStateOf(false) }
-    var showTerminal by remember { mutableStateOf(false) }
+    var showTerminal by rememberSaveable { mutableStateOf(false) }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -121,6 +122,7 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
             // Key the PTY to this exact tab. Project identity alone is not sufficient.
             key(activeTabId) {
                 PtyTerminalScreen(
+                    tabId = activeTabId,
                     profile = state.profile!!,
                     projectPath = state.currentWorkingDirectory ?: state.project!!.remotePath,
                     onBack = { showTerminal = false },
