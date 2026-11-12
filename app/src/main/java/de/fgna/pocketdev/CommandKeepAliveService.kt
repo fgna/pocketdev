@@ -12,17 +12,20 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import de.fgna.pocketdev.ssh.SshjCommandExecutor
+import de.fgna.pocketdev.ssh.PtyActivityRegistry
 import de.fgna.pocketdev.transfer.TransferActivityRegistry
 
 class CommandKeepAliveService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var removeCommandListener: (() -> Unit)? = null
     private var removeTransferListener: (() -> Unit)? = null
+    private var removeTerminalListener: (() -> Unit)? = null
     private var lastCommandCount = 0
     private var lastTransferCount = 0
+    private var lastTerminalCount = 0
 
     private val stopWhenIdle = Runnable {
-        if (SshjCommandExecutor.activeUserCommandCount() == 0 && TransferActivityRegistry.activeCount() == 0) {
+        if (SshjCommandExecutor.activeUserCommandCount() == 0 && TransferActivityRegistry.activeCount() == 0 && PtyActivityRegistry.activeCount() == 0) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
@@ -37,6 +40,10 @@ class CommandKeepAliveService : Service() {
         removeTransferListener = TransferActivityRegistry.addListener { count ->
             onActivityCountChanged(commandCount = SshjCommandExecutor.activeUserCommandCount(), transferCount = count)
         }
+        removeTerminalListener = PtyActivityRegistry.addListener { count ->
+            onActivityCountChanged(commandCount = SshjCommandExecutor.activeUserCommandCount(),
+                transferCount = TransferActivityRegistry.activeCount(), terminalCount = count)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -44,8 +51,9 @@ class CommandKeepAliveService : Service() {
             SshjCommandExecutor.cancelAllActiveUserCommands()
             mainHandler.removeCallbacks(stopWhenIdle)
             val transfers = TransferActivityRegistry.activeCount()
-            if (transfers > 0) {
-                showForegroundNotification(commandCount = 0, transferCount = transfers)
+            val terminals = PtyActivityRegistry.activeCount()
+            if (transfers > 0 || terminals > 0) {
+                showForegroundNotification(commandCount = 0, transferCount = transfers, terminalCount = terminals)
             } else {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf(startId)
@@ -56,13 +64,15 @@ class CommandKeepAliveService : Service() {
         mainHandler.removeCallbacks(stopWhenIdle)
         val commands = SshjCommandExecutor.activeUserCommandCount()
         val transfers = TransferActivityRegistry.activeCount()
+        val terminals = PtyActivityRegistry.activeCount()
         val transferHint = intent?.getBooleanExtra(EXTRA_TRANSFER_HINT, false) == true
         when {
-            commands > 0 || transfers > 0 -> showForegroundNotification(commands, transfers)
+            commands > 0 || transfers > 0 || terminals > 0 ->
+                showForegroundNotification(commands, transfers, terminals)
             transferHint -> showForegroundNotification(commandCount = 0, transferCount = 1)
             else -> showForegroundNotification(commandCount = 1, transferCount = 0)
         }
-        if (commands == 0 && transfers == 0) {
+        if (commands == 0 && transfers == 0 && terminals == 0) {
             mainHandler.postDelayed(stopWhenIdle, STARTUP_GRACE_MS)
         }
         return START_NOT_STICKY
@@ -72,20 +82,27 @@ class CommandKeepAliveService : Service() {
         mainHandler.removeCallbacks(stopWhenIdle)
         removeCommandListener?.invoke()
         removeTransferListener?.invoke()
+        removeTerminalListener?.invoke()
         removeCommandListener = null
         removeTransferListener = null
+        removeTerminalListener = null
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun onActivityCountChanged(commandCount: Int, transferCount: Int) {
+    private fun onActivityCountChanged(
+        commandCount: Int,
+        transferCount: Int,
+        terminalCount: Int = PtyActivityRegistry.activeCount(),
+    ) {
         mainHandler.post {
             lastCommandCount = commandCount
             lastTransferCount = transferCount
+            lastTerminalCount = terminalCount
             mainHandler.removeCallbacks(stopWhenIdle)
-            if (commandCount > 0 || transferCount > 0) {
-                showForegroundNotification(commandCount, transferCount)
+            if (commandCount > 0 || transferCount > 0 || terminalCount > 0) {
+                showForegroundNotification(commandCount, transferCount, terminalCount)
             } else {
                 // Command pre-check/bootstrap and transfer startup can hand off through a short
                 // zero-work gap. Debounce shutdown so foreground protection is not dropped.
@@ -97,6 +114,7 @@ class CommandKeepAliveService : Service() {
     private fun showForegroundNotification(
         commandCount: Int = lastCommandCount,
         transferCount: Int = lastTransferCount,
+        terminalCount: Int = lastTerminalCount,
     ) {
         val openPocketDev = Intent(this, InteractiveMainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -120,6 +138,15 @@ class CommandKeepAliveService : Service() {
         val title: String
         val text: String
         when {
+            terminalCount > 0 && (commandCount > 0 || transferCount > 0) -> {
+                title = "PocketDev · background work"
+                text = "$terminalCount terminal(s) · $commandCount command(s) · $transferCount transfer(s)"
+            }
+            terminalCount > 0 -> {
+                title = "PocketDev · terminal running"
+                text = if (terminalCount == 1) "Interactive SSH terminal is active"
+                       else "$terminalCount interactive SSH terminals are active"
+            }
             commandCount > 0 && transferCount > 0 -> {
                 title = "PocketDev · background work"
                 text = "$commandCount command${if (commandCount == 1) "" else "s"} · $transferCount transfer${if (transferCount == 1) "" else "s"}"

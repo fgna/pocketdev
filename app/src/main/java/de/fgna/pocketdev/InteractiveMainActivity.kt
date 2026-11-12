@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,6 +48,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.fgna.pocketdev.ssh.SshjCommandExecutor
+import de.fgna.pocketdev.ssh.PtyActivityRegistry
 import de.fgna.pocketdev.ssh.CommandInputHandle
 import de.fgna.pocketdev.transfer.FileTransferScreen
 import de.fgna.pocketdev.transfer.TransferActivityRegistry
@@ -71,7 +73,8 @@ class InteractiveMainActivity : ComponentActivity() {
         // Activity. Idle app switching must not create a phantom foreground notification.
         val commands = SshjCommandExecutor.activeUserCommandCount()
         val transfers = TransferActivityRegistry.activeCount()
-        if (commands > 0 || transfers > 0) {
+        val terminals = PtyActivityRegistry.activeCount()
+        if (commands > 0 || transfers > 0 || terminals > 0) {
             CommandKeepAliveService.ensureRunning(this, transferHint = commands == 0 && transfers > 0)
         }
         super.onPause()
@@ -89,6 +92,7 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     val anyCommandRunning = state.sessions.values.any { it.command.running }
     val anyArtifactDownloading = state.sessions.values.any { it.artifact.downloading }
     var showFiles by remember { mutableStateOf(false) }
+    var showTerminal by rememberSaveable { mutableStateOf(false) }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -116,7 +120,17 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        if (showFiles) {
+        if (showTerminal && state.profile != null && state.project != null) {
+            // Key the PTY to this exact tab. Project identity alone is not sufficient.
+            key(activeTabId) {
+                PtyTerminalScreen(
+                    tabId = activeTabId,
+                    profile = state.profile!!,
+                    projectPath = state.currentWorkingDirectory ?: state.project!!.remotePath,
+                    onBack = { showTerminal = false },
+                )
+            }
+        } else if (showFiles) {
             FileTransferScreen(onBack = { showFiles = false })
         } else {
             PocketDevApp(vm)
@@ -129,6 +143,13 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
                     .padding(end = 166.dp, top = 9.dp),
             ) {
                 Text("Files")
+            }
+
+            if (!command.running && state.profile != null && state.project != null && state.hasStoredSecret) {
+                TextButton(
+                    onClick = { showTerminal = true },
+                    modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 16.dp, bottom = 104.dp),
+                ) { Text("Terminal · PTY") }
             }
 
             if (command.running) {
