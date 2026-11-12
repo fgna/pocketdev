@@ -2,6 +2,7 @@ package de.fgna.pocketdev
 
 import de.fgna.pocketdev.project.ActionProfileTemplates
 import de.fgna.pocketdev.project.ProjectConfig
+import de.fgna.pocketdev.project.ProjectCommandBuilder
 import de.fgna.pocketdev.project.WorkspaceTab
 import de.fgna.pocketdev.project.WorkspaceTabSelection
 import de.fgna.pocketdev.ssh.CommandUiState
@@ -50,6 +51,20 @@ class PocketDevTabStateTest {
         assertTrue(first.command.running)
         assertFalse(second.command.running)
         assertEquals(project.actionProfileId, second.project?.actionProfileId)
+    }
+
+    @Test fun duplicateTabIdsGenerateDistinctSafeCommandMarkers() {
+        val first = ProjectCommandBuilder.trackedInDirectory(
+            project.remotePath, "pwd", "tab-first",
+        )
+        val second = ProjectCommandBuilder.trackedInDirectory(
+            project.remotePath, "pwd", "tab-second",
+        )
+        assertTrue(first.contains("__POCKETDEV_CWD__tab-first:"))
+        assertTrue(second.contains("__POCKETDEV_CWD__tab-second:"))
+        assertFalse(first.contains("__POCKETDEV_CWD__tab-second:"))
+        assertTrue(first.contains("cd '/srv/light scenes'"))
+        assertTrue(second.contains("cd '/srv/light scenes'"))
     }
 
     @Test fun closedActiveTabCannotReadAnotherTabsSession() {
