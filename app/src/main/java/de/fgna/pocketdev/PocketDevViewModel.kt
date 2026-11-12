@@ -817,9 +817,9 @@ class PocketDevViewModel(
         return true
     }
 
-    fun runCommand() {
-        val tabId = _state.value.activeTabId ?: return
-        runCommandFor(tabId)
+    fun runCommand(tabId: String? = _state.value.activeTabId) {
+        val selectedTabId = tabId ?: return
+        runCommandFor(selectedTabId)
     }
 
     private fun runCommandFor(tabId: String, skipProjectCheck: Boolean = false) {
