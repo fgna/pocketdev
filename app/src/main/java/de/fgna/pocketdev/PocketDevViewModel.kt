@@ -342,8 +342,10 @@ class PocketDevViewModel(
         val state = _state.value
         val editor = state.projectEditor
         val previous = state.projects.firstOrNull { it.id == state.projectEditorId }
-        val previousSession = state.sessions[state.projectEditorId]
-        if (previousSession?.command?.running == true || previousSession?.artifact?.downloading == true) {
+        val projectTabs = state.tabSelection.tabs.filter { it.projectId == state.projectEditorId }
+        if (projectTabs.any { tab ->
+            state.sessions[tab.id]?.let { it.command.running || it.artifact.downloading } == true
+        }) {
             updateState { it.copy(projectEditor = editor.copy(error = "Wait for this project's command or download to finish before saving.")) }
             return
         }
@@ -352,65 +354,113 @@ class PocketDevViewModel(
             return
         }
         val collection = projectRepository.upsert(project, makeActive = true)
+        val existingTab = _state.value.tabSelection.tabs.firstOrNull { it.projectId == collection.activeProject?.id }
+        val tabs = if (existingTab != null) _state.value.tabSelection.select(existingTab.id)
+            else _state.value.tabSelection.add(collection.activeProject!!.id, "tab-${UUID.randomUUID()}")
         updateState {
-            var sessions = ensureSessions(collection.projects, it.sessions)
+            var sessions = ensureSessions(collection.projects, it.sessions, tabs)
             if (previous != null && previous.remotePath != project.remotePath) {
-                sessions[project.id]?.let { session ->
-                    sessions = sessions + (project.id to session.copy(workingDirectory = project.remotePath, artifact = ArtifactDownloadState()))
+                tabs.tabs.filter { tab -> tab.projectId == project.id }.forEach { tab ->
+                    sessions[tab.id]?.let { session ->
+                        sessions = sessions + (tab.id to session.copy(workingDirectory = project.remotePath, artifact = ArtifactDownloadState()))
+                    }
                 }
             }
             it.copy(
-                projects = collection.projects,
-                project = displayProject(collection.activeProject, sessions),
+                projects = collection.projects, tabSelection = tabs,
+                project = displayProject(collection.activeProject, sessions, tabs.activeTabId),
                 sessions = sessions,
                 projectEditorOpen = false,
                 projectEditorId = null,
             )
         }
-        collection.activeProject?.id?.let { projectId ->
-            _state.value.sessions[projectId]?.let { persistSession(projectId, it) }
-            refreshGitBranch(projectId)
+        persistTabs(tabs)
+        tabs.activeTabId?.let { tabId ->
+            _state.value.sessions[tabId]?.let { persistSession(tabId, it) }
+            refreshGitBranch(tabId)
         }
     }
 
     fun selectProject(projectId: String) {
-        if (_state.value.project?.id == projectId) {
-            refreshGitBranch(projectId)
-            return
-        }
+        val state = _state.value
+        val tab = state.tabSelection.tabs.firstOrNull { it.projectId == projectId }
+        if (tab != null) selectTab(tab.id) else openTab(projectId)
+    }
+
+    fun openTab(projectId: String) {
+        if (_state.value.projects.none { it.id == projectId }) return
         val collection = projectRepository.setActive(projectId)
+        val next = _state.value.tabSelection.add(projectId, "tab-${UUID.randomUUID()}")
         updateState {
-            val sessions = ensureSessions(collection.projects, it.sessions)
+            val sessions = ensureSessions(collection.projects, it.sessions, next)
             it.copy(
-                projects = collection.projects,
-                project = displayProject(collection.activeProject, sessions),
+                projects = collection.projects, tabSelection = next,
+                project = displayProject(collection.activeProject, sessions, next.activeTabId),
                 sessions = sessions,
             )
         }
-        refreshGitBranch(projectId)
+        persistTabs(next)
+        next.activeTabId?.let(::refreshGitBranch)
+    }
+
+    fun selectTab(tabId: String) {
+        val tab = _state.value.tabSelection.tabs.firstOrNull { it.id == tabId } ?: return
+        val collection = projectRepository.setActive(tab.projectId)
+        val next = _state.value.tabSelection.select(tabId)
+        updateState {
+            it.copy(
+                projects = collection.projects, tabSelection = next,
+                project = displayProject(collection.activeProject, it.sessions, tabId),
+            )
+        }
+        persistTabs(next)
+        refreshGitBranch(tabId)
+    }
+
+    fun closeTab(tabId: String) {
+        val state = _state.value
+        val current = state.sessions[tabId]
+        if (current?.command?.running == true || current?.artifact?.downloading == true) return
+        val next = state.tabSelection.close(tabId)
+        if (next == state.tabSelection) return
+        val activeProject = state.projects.firstOrNull { it.id == next.activeTab?.projectId }
+        if (activeProject != null) projectRepository.setActive(activeProject.id)
+        updateState {
+            it.copy(
+                tabSelection = next, sessions = it.sessions - tabId,
+                project = displayProject(activeProject, it.sessions - tabId, next.activeTabId),
+            )
+        }
+        clearPersistedSession(tabId)
+        persistTabs(next)
+        next.activeTabId?.let(::refreshGitBranch)
     }
 
     fun deleteCurrentProject() {
         val projectId = _state.value.project?.id ?: return
-        val session = _state.value.sessions[projectId]
-        if (session?.command?.running == true || session?.artifact?.downloading == true) {
+        val projectTabs = _state.value.tabSelection.tabs.filter { it.projectId == projectId }
+        if (projectTabs.any { tab ->
+            _state.value.sessions[tab.id]?.let { it.command.running || it.artifact.downloading } == true
+        }) {
             updateState { it.copy(projectEditor = it.projectEditor.copy(error = "Stop the command or wait for the download before deleting this project.")) }
             return
         }
         val collection = projectRepository.delete(projectId)
+        val tabs = _state.value.tabSelection.retainProjects(collection.projects.map { it.id }.toSet())
         updateState {
-            val sessions = ensureSessions(collection.projects, it.sessions - projectId)
+            val sessions = ensureSessions(collection.projects, it.sessions, tabs)
             it.copy(
-                projects = collection.projects,
-                project = displayProject(collection.activeProject, sessions),
+                projects = collection.projects, tabSelection = tabs,
+                project = displayProject(collection.projects.firstOrNull { project -> project.id == tabs.activeTab?.projectId }, sessions, tabs.activeTabId),
                 sessions = sessions,
                 projectEditorOpen = false,
                 projectEditorId = null,
                 pendingProjectCreate = it.pendingProjectCreate?.takeUnless { request -> request.projectId == projectId },
             )
         }
-        clearPersistedSession(projectId)
-        collection.activeProject?.id?.let(::refreshGitBranch)
+        projectTabs.forEach { clearPersistedSession(it.id) }
+        persistTabs(tabs)
+        tabs.activeTabId?.let(::refreshGitBranch)
     }
 
     fun prepareProjectAction(actionId: String): Boolean {
