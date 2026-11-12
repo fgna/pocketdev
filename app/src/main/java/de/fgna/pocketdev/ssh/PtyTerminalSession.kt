@@ -59,11 +59,14 @@ class PtyTerminalSession {
             input = remote.outputStream
             // Enter the project's directory in the remote login shell.
             send("cd " + quote(directory) + "\n")
-            val buffer = ByteArray(4096)
+            // Reader buffers split UTF-8 sequences across SSH network chunks.
+            // Decoding each byte chunk independently corrupts Unicode terminal output.
+            val reader = remote.inputStream.reader(Charsets.UTF_8)
+            val buffer = CharArray(4096)
             while (active.get()) {
-                val count = remote.inputStream.read(buffer)
+                val count = reader.read(buffer)
                 if (count < 0) break
-                if (count > 0) onOutput(String(buffer, 0, count, Charsets.UTF_8))
+                if (count > 0) onOutput(String(buffer, 0, count))
             }
             remote.join()
             0 // SSHJ shell channels do not expose an exec-command exit status.
