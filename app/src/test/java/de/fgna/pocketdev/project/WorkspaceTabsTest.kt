@@ -23,6 +23,29 @@ class WorkspaceTabsTest {
         assertEquals(listOf("LightScenes"), WorkspaceTabs.labels(WorkspaceTabs.close(both, "tab-a"), projects).map { it.title })
     }
 
+    @Test fun customTitleAffectsOnlyItsTabAndCanBeCleared() {
+        val projects = listOf(project("android", "LightScenes", "android-gradle"))
+        val initial = WorkspaceTabSelection(emptyList(), null)
+            .add("android", "tab-a")
+            .add("android", "tab-b")
+        val renamed = initial.rename("tab-a", "  GoodVibes  ")
+        assertEquals(listOf("GoodVibes", "LightScenes 2"), WorkspaceTabs.labels(renamed.tabs, projects).map { it.title })
+        assertEquals(listOf("LightScenes 1", "LightScenes 2"), WorkspaceTabs.labels(initial.tabs, projects).map { it.title })
+        assertEquals(listOf("LightScenes 1", "LightScenes 2"), WorkspaceTabs.labels(renamed.rename("tab-a", " ").tabs, projects).map { it.title })
+        assertEquals("GoodVibes", renamed.tabs[0].customTitle)
+        assertEquals(null, renamed.tabs[1].customTitle)
+    }
+
+    @Test fun renamingSurvivesProjectReassignmentWithoutChangingOtherTab() {
+        val projects = listOf(project("android", "LightScenes", "android-gradle"), project("compose", "Community", "docker-compose"))
+        val tabs = WorkspaceTabs.open(emptyList(), "android", "tab-a")
+        val renamed = WorkspaceTabs.rename(tabs, "tab-a", "My Work")
+        val reassigned = WorkspaceTabs.reassign(renamed, "tab-a", "compose")
+        assertEquals(listOf("My Work"), WorkspaceTabs.labels(reassigned, projects).map { it.title })
+        assertEquals("compose", reassigned.single().projectId)
+        assertEquals("My Work", reassigned.single().customTitle)
+    }
+
     @Test fun distinctProfilesCanCoexistAndReassignChangesOnlyOneTab() {
         val projects = listOf(
             project("android", "LightScenes", "android-gradle"),
