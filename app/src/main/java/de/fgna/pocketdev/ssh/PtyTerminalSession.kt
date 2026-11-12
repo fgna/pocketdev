@@ -22,6 +22,7 @@ class PtyTerminalSession {
     private var shell: Session.Shell? = null
     private var input: OutputStream? = null
     private val active = AtomicBoolean(false)
+    private val activityId = java.util.UUID.randomUUID().toString()
 
     suspend fun run(
         profile: SshProfile,
@@ -32,6 +33,7 @@ class PtyTerminalSession {
         require(profile.hostKeySha256.isNotBlank()) { "Trust this SSH host in PocketDev first." }
         require(directory.startsWith("/")) { "Project path must be absolute." }
         check(active.compareAndSet(false, true)) { "PTY session is already running" }
+        PtyActivityRegistry.begin(activityId)
         try {
             val client = SSHClient(DefaultSecurityProviderConfig().apply {
                 setKeyAlgorithms(listOf(KeyAlgorithms.RSASHA512(), KeyAlgorithms.RSASHA256()))
@@ -72,6 +74,7 @@ class PtyTerminalSession {
             Unit // PTY shell exit status is not a reliable command result.
         } finally {
             active.set(false)
+            PtyActivityRegistry.end(activityId)
             runCatching { shell?.close() }
             runCatching { session?.close() }
             runCatching { ssh?.disconnect() }
