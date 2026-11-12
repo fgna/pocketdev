@@ -83,20 +83,28 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
     val context = LocalContext.current
     var issueDraft by remember { mutableStateOf<DiagnosticIssueDraft?>(null) }
     var projectSwitcherOpen by remember { mutableStateOf(false) }
+    var pendingRunTabId by remember { mutableStateOf<String?>(null) }
 
     val nearbyPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        if (granted) vm.runCommand()
-        else Toast.makeText(context, "Nearby devices permission is required for SSH to local-network servers.", Toast.LENGTH_LONG).show()
+        val originalTab = pendingRunTabId
+        pendingRunTabId = null
+        if (granted && originalTab != null) vm.runCommand(originalTab)
+        else if (!granted) Toast.makeText(context, "Nearby devices permission is required for SSH to local-network servers.", Toast.LENGTH_LONG).show()
     }
 
     val runWithLanPermission = {
-        if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            context.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED
-        ) nearbyPermissionLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
-        else vm.runCommand()
+        val originalTab = state.activeTabId
+        if (originalTab != null) {
+            if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                context.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED
+            ) {
+                pendingRunTabId = originalTab
+                nearbyPermissionLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
+            } else vm.runCommand(originalTab)
+        }
     }
     val runProjectAction: (String) -> Unit = { actionId ->
         if (vm.prepareProjectAction(actionId)) runWithLanPermission()
