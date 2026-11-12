@@ -28,7 +28,7 @@ class PtyTerminalSession {
         secret: String,
         directory: String,
         onOutput: (String) -> Unit,
-    ): Int = withContext(Dispatchers.IO) {
+    ): Unit = withContext(Dispatchers.IO) {
         require(profile.hostKeySha256.isNotBlank()) { "Trust this SSH host in PocketDev first." }
         require(directory.startsWith("/")) { "Project path must be absolute." }
         check(active.compareAndSet(false, true)) { "PTY session is already running" }
@@ -69,7 +69,7 @@ class PtyTerminalSession {
                 if (count > 0) onOutput(String(buffer, 0, count))
             }
             remote.join()
-            0 // SSHJ shell channels do not expose an exec-command exit status.
+            Unit // PTY shell exit status is not a reliable command result.
         } finally {
             active.set(false)
             runCatching { shell?.close() }
