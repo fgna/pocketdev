@@ -1,0 +1,5 @@
+- Run multiple independent tabs for the same project, with automatically numbered tab titles.
+- Keep command output, working directories, interactive input, Stop and APK downloads separate in each tab.
+- Use project-specific Android, Docker Compose or custom action profiles with reusable project-relative commands.
+- See the current project name at the top and close tabs from the workspace instead of the bottom tab bar.
+- Start with a new project and create its missing folder on the development server.
