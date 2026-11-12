@@ -954,6 +954,7 @@ class PocketDevViewModel(
     /** Keep private, unmodified Codex stdout and stderr logs on the SSH host. */
     private fun codexLoggedCommand(command: String): String {
         val script = listOf(
+            SshjCommandExecutor.interactiveSudoPrelude(),
             "umask 077",
             "dir=\"\$HOME/.local/state/pocketdev/jobs\"",
             "mkdir -p \"\$dir\" || exit 1",
