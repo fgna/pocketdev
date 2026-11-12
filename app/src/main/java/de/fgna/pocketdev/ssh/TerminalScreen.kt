@@ -18,20 +18,27 @@ class TerminalScreen(columns: Int = 80, rows: Int = 24) {
     private val control = StringBuilder()
     private var mode = 0 // 0 normal, 1 ESC, 2 CSI, 3 OSC, 4 OSC escape
     private var pendingCR = false
+    // VT autowrap is delayed until the *next* printable character.
+    private var wrapPending = false
 
     @Synchronized fun accept(chunk: String): String {
         for (ch in chunk) {
             when (mode) {
                 0 -> when (ch) {
                     '\u001b' -> mode = 1
-                    '\r' -> { col = 0; pendingCR = true }
-                    '\n' -> { if (!pendingCR) col = 0; newline(); pendingCR = false }
-                    '\b' -> { col = (col - 1).coerceAtLeast(0); pendingCR = false }
-                    '\t' -> { col = ((col / 8 + 1) * 8).coerceAtMost(columns - 1); pendingCR = false }
+                    '\r' -> { col = 0; pendingCR = true; wrapPending = false }
+                    '\n' -> { if (!pendingCR) col = 0; newline(); pendingCR = false; wrapPending = false }
+                    '\b' -> { col = (col - 1).coerceAtLeast(0); pendingCR = false; wrapPending = false }
+                    '\t' -> { col = ((col / 8 + 1) * 8).coerceAtMost(columns - 1); pendingCR = false; wrapPending = false }
                     else -> if (ch >= ' ') {
                         pendingCR = false
+                        if (wrapPending) {
+                            col = 0
+                            newline()
+                            wrapPending = false
+                        }
                         cells[row][col] = ch
-                        if (++col >= columns) { col = 0; newline() }
+                        if (col == columns - 1) wrapPending = true else col++
                     }
                 }
                 1 -> {
@@ -40,9 +47,9 @@ class TerminalScreen(columns: Int = 80, rows: Int = 24) {
                         '[' -> { mode = 2; control.clear() }
                         ']' -> { mode = 3; control.clear() }
                         '7' -> { savedRow = row; savedCol = col }
-                        '8' -> { row = savedRow; col = savedCol }
-                        'D' -> newline()
-                        'M' -> { row = (row - 1).coerceAtLeast(0) }
+                        '8' -> { row = savedRow; col = savedCol; wrapPending = false }
+                        'D' -> { newline(); wrapPending = false }
+                        'M' -> { row = (row - 1).coerceAtLeast(0); wrapPending = false }
                         'c' -> clear()
                     }
                 }
@@ -74,6 +81,7 @@ class TerminalScreen(columns: Int = 80, rows: Int = 24) {
         col = col.coerceAtMost(columns - 1)
         savedRow = savedRow.coerceAtMost(rows - 1)
         savedCol = savedCol.coerceAtMost(columns - 1)
+        wrapPending = false
         return render()
     }
 
@@ -95,9 +103,12 @@ class TerminalScreen(columns: Int = 80, rows: Int = 24) {
         }
     }
 
-    private fun clear() { cells = Array(rows) { CharArray(columns) { ' ' } }; row = 0; col = 0 }
+    private fun clear() { cells = Array(rows) { CharArray(columns) { ' ' } }; row = 0; col = 0; wrapPending = false }
 
     private fun csi(command: Char, params: String) {
+        // Positioning and editing commands cancel the delayed autowrap state.
+        // SGR/colors and private mode toggles do not move the cursor.
+        if (command !in charArrayOf('m', 'h', 'l')) wrapPending = false
         val private = params.startsWith("?")
         val values = params.removePrefix("?").split(';').map { it.toIntOrNull() ?: 0 }
         fun count() = (values.firstOrNull() ?: 0).coerceAtLeast(1)
