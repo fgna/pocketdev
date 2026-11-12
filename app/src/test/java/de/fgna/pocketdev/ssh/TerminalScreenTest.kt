@@ -76,6 +76,13 @@ class TerminalScreenTest {
         assertEquals("q".repeat(20) + "\nX", screen.render())
     }
 
+    @Test fun unknownStatusQueriesDoNotCancelPendingWrap() {
+        val screen = TerminalScreen(20, 5)
+        screen.accept("a".repeat(20))
+        screen.accept("\u001b[5nX")
+        assertEquals("a".repeat(20) + "\nX", screen.render())
+    }
+
     @Test fun titleEscapeIsNotDisplayed() {
         val screen = TerminalScreen(20, 5)
         screen.accept("\u001b]0;secret title\u0007hello")
