@@ -70,7 +70,7 @@ class PocketDevTabStateTest {
     @Test fun closedActiveTabCannotReadAnotherTabsSession() {
         val state = PocketDevState(
             projects = listOf(project), project = project,
-            sessions = sessions - "tab-first",
+            sessions = sessions - "tab-second",
             tabSelection = WorkspaceTabSelection(tabs, "tab-second").close("tab-second"),
         )
         assertEquals("first output", state.command.stdout)
