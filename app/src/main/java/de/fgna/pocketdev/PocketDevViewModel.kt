@@ -406,6 +406,13 @@ class PocketDevViewModel(
         next.activeTabId?.let(::refreshGitBranch)
     }
 
+    fun renameTab(tabId: String, title: String) {
+        if (_state.value.tabSelection.tabs.none { it.id == tabId }) return
+        val next = _state.value.tabSelection.rename(tabId, title)
+        updateState { it.copy(tabSelection = next) }
+        persistTabs(next)
+    }
+
     fun selectTab(tabId: String) {
         val tab = _state.value.tabSelection.tabs.firstOrNull { it.id == tabId } ?: return
         val collection = projectRepository.setActive(tab.projectId)
@@ -1081,8 +1088,10 @@ class PocketDevViewModel(
         val validIds = projects.map { it.id }.toSet()
         if (ids != null && projectIds != null && ids.size == projectIds.size &&
             ids.distinct().size == ids.size && ids.all { it.isNotBlank() }) {
-            val tabs = ids.zip(projectIds).map { (id, projectId) -> WorkspaceTab(id, projectId) }
-                .filter { it.projectId in validIds }
+            val names = savedStateHandle.get<ArrayList<String>>("tabs.titles")
+            val tabs = ids.zip(projectIds).mapIndexed { index, (id, projectId) ->
+                WorkspaceTab(id, projectId, names?.getOrNull(index)?.trim()?.take(60)?.ifBlank { null })
+            }.filter { it.projectId in validIds }
             // An intentionally closed tab bar must remain empty after recreation.
             val activeId = savedStateHandle.get<String>("tabs.active")
                 ?.takeIf { id -> tabs.any { it.id == id } } ?: tabs.firstOrNull()?.id
@@ -1094,6 +1103,7 @@ class PocketDevViewModel(
     private fun persistTabs(tabs: WorkspaceTabSelection) {
         savedStateHandle["tabs.ids"] = ArrayList(tabs.tabs.map { it.id })
         savedStateHandle["tabs.projects"] = ArrayList(tabs.tabs.map { it.projectId })
+        savedStateHandle["tabs.titles"] = ArrayList(tabs.tabs.map { it.customTitle.orEmpty() })
         savedStateHandle["tabs.active"] = tabs.activeTabId
     }
 
