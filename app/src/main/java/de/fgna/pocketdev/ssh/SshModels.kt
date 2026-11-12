@@ -75,11 +75,15 @@ object CommandStateReducer {
         val now = System.currentTimeMillis()
         val prefix = "POCKETDEV_JOB_LOG:"
         val text = event.text
+        val isCodex = CodexProgress.enabled(current.command)
+        // Generic SSH output retains its existing full-stream behavior.
+        // Only JSONL-heavy Codex jobs bound the visible output; complete logs remain remote.
+        fun visible(value: String) = if (isCodex) value.takeLast(MAX_VISIBLE_OUTPUT) else value
         val updated = when (event.stream) {
-            OutputStreamKind.STDOUT -> current.copy(stdout = (current.stdout + text).takeLast(MAX_VISIBLE_OUTPUT))
-            OutputStreamKind.STDERR -> current.copy(stderr = (current.stderr + text).takeLast(MAX_VISIBLE_OUTPUT))
+            OutputStreamKind.STDOUT -> current.copy(stdout = visible(current.stdout + text))
+            OutputStreamKind.STDERR -> current.copy(stderr = visible(current.stderr + text))
         }.copy(lastActivityAtMs = now)
-        if (event.stream != OutputStreamKind.STDOUT || !CodexProgress.enabled(current.command)) return updated
+        if (event.stream != OutputStreamKind.STDOUT || !isCodex) return updated
         val merged = current.pendingCodexLine + text
         val lines = merged.split('\n')
         val complete = lines.dropLast(1)
