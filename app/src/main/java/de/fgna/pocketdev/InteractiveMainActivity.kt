@@ -48,6 +48,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.fgna.pocketdev.ssh.SshjCommandExecutor
+import de.fgna.pocketdev.ssh.PtyActivityRegistry
 import de.fgna.pocketdev.ssh.CommandInputHandle
 import de.fgna.pocketdev.transfer.FileTransferScreen
 import de.fgna.pocketdev.transfer.TransferActivityRegistry
@@ -72,7 +73,8 @@ class InteractiveMainActivity : ComponentActivity() {
         // Activity. Idle app switching must not create a phantom foreground notification.
         val commands = SshjCommandExecutor.activeUserCommandCount()
         val transfers = TransferActivityRegistry.activeCount()
-        if (commands > 0 || transfers > 0) {
+        val terminals = PtyActivityRegistry.activeCount()
+        if (commands > 0 || transfers > 0 || terminals > 0) {
             CommandKeepAliveService.ensureRunning(this, transferHint = commands == 0 && transfers > 0)
         }
         super.onPause()
