@@ -358,7 +358,7 @@ private fun PocketDevHome(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(project?.name?.takeIf { it.isNotBlank() } ?: "PocketDev", style = MaterialTheme.typography.titleLarge)
+                            Text(WorkspaceTabs.labels(state.tabSelection.tabs, state.projects).firstOrNull { it.tabId == state.activeTabId }?.title ?: "PocketDev", style = MaterialTheme.typography.titleLarge)
                             PocketDevContextStrip(headerLabel, state = headerState)
                         }
                         Spacer(modifier = Modifier.weight(1f))
