@@ -106,9 +106,11 @@ class TerminalScreen(columns: Int = 80, rows: Int = 24) {
     private fun clear() { cells = Array(rows) { CharArray(columns) { ' ' } }; row = 0; col = 0; wrapPending = false }
 
     private fun csi(command: Char, params: String) {
-        // Positioning and editing commands cancel the delayed autowrap state.
-        // SGR/colors and private mode toggles do not move the cursor.
-        if (command !in charArrayOf('m', 'h', 'l')) wrapPending = false
+        // Only implemented cursor positioning and editing commands cancel autowrap.
+        // Queries, unknown CSI codes, SGR and private mode toggles leave it intact.
+        if (command in charArrayOf('A', 'B', 'C', 'D', 'G', 'H', 'f', 'J', 'K', 's', 'u')) {
+            wrapPending = false
+        }
         val private = params.startsWith("?")
         val values = params.removePrefix("?").split(';').map { it.toIntOrNull() ?: 0 }
         fun count() = (values.firstOrNull() ?: 0).coerceAtLeast(1)
