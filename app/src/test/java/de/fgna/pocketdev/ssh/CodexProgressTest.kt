@@ -57,6 +57,14 @@ class CodexProgressTest {
         assertEquals(1, finished.exitCode)
     }
 
+    @Test fun codexLoggingShellInheritsTheSameSudoPromptDefinition() {
+        val shim = SshjCommandExecutor.interactiveSudoPrelude()
+        assertTrue(shim.contains("exec 3<&0"))
+        assertTrue(shim.contains("sudo() {"))
+        assertTrue(shim.contains("sudo -S -p"))
+        assertTrue(shim.contains("sudo -n"))
+    }
+
     @Test fun genericCommandsKeepRawStreaming() {
         val state = CommandStateReducer.reduce(CommandUiState(command = "echo hello"), CommandEvent.Output(OutputStreamKind.STDOUT, "hello"))
         assertEquals("hello", state.stdout)
