@@ -124,6 +124,7 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                 },
                 onOpenTab = vm::openTab,
                 onCloseTab = vm::closeTab,
+                onRenameTab = vm::renameTab,
                 onProjectAction = runProjectAction,
                 onDownloadArtifact = vm::downloadLatestApk,
                 onOpenArtifact = { path -> openApk(context, path) },
@@ -284,6 +285,7 @@ private fun PocketDevHome(
     onSelectProject: (String) -> Unit,
     onOpenTab: (String) -> Unit,
     onCloseTab: (String) -> Unit,
+    onRenameTab: (String, String) -> Unit,
     onProjectAction: (String) -> Unit,
     onDownloadArtifact: () -> Unit,
     onOpenArtifact: (String) -> Unit,
@@ -303,6 +305,31 @@ private fun PocketDevHome(
     val execution = state.command
     val artifact = state.artifact
     val busy = execution.running || artifact.downloading
+    var renamingTabId by remember { mutableStateOf<String?>(null) }
+    var tabName by remember { mutableStateOf("") }
+
+    if (renamingTabId != null) {
+        AlertDialog(
+            onDismissRequest = { renamingTabId = null },
+            title = { Text("Rename tab") },
+            text = {
+                OutlinedTextField(
+                    value = tabName,
+                    onValueChange = { tabName = it.take(60) },
+                    label = { Text("Tab name") },
+                    supportingText = { Text("Leave empty to use the project name.") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    renamingTabId?.let { onRenameTab(it, tabName) }
+                    renamingTabId = null
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { renamingTabId = null }) { Text("Cancel") } },
+        )
+    }
 
     val headerState = when {
         artifact.error != null || execution.connectionError != null || (execution.exitCode != null && execution.exitCode != 0) -> PocketDevIndicatorState.Warning
@@ -367,6 +394,11 @@ private fun PocketDevHome(
                         PocketDevSectionLabel("Workspace", modifier = Modifier.weight(1f))
                         if (state.projects.size > 1) Text("${state.projects.size} projects", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         state.activeTabId?.let { activeTabId ->
+                            TextButton(onClick = {
+                                tabName = state.tabSelection.activeTab?.customTitle.orEmpty()
+                                renamingTabId = activeTabId
+                            }) { Text("Rename", style = MaterialTheme.typography.labelSmall) }
+
                             val tabBusy = state.sessions[activeTabId]?.let { it.command.running || it.artifact.downloading } == true
                             TextButton(
                                 onClick = { onCloseTab(activeTabId) },
