@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -16,61 +15,32 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import de.fgna.pocketdev.data.SshProfileRepository
-import de.fgna.pocketdev.ssh.PtyTerminalSession
-import de.fgna.pocketdev.ssh.TerminalScreen
+import androidx.lifecycle.viewmodel.compose.viewModel
 import de.fgna.pocketdev.ssh.SshProfile
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
-/**
- * First vertical PTY slice: real interactive shell with bounded readable output
- * and character input. Full-screen cursor-addressing terminal emulation is follow-up.
- */
+/** Interactive PTY with a ViewModel-owned shell that survives Activity recreation. */
 @Composable
 fun PtyTerminalScreen(
+    tabId: String,
     profile: SshProfile,
     projectPath: String,
     onBack: () -> Unit,
+    vm: PtyTerminalViewModel = viewModel(key = "pty-$tabId"),
 ) {
-    val context = LocalContext.current
-    val terminal = remember { PtyTerminalSession() }
-    val display = remember { TerminalScreen() }
-    var output by remember { mutableStateOf("") }
-    var input by remember { mutableStateOf("") }
-    var running by remember { mutableStateOf(true) }
-    var columns by remember { mutableStateOf(80) }
-    var rows by remember { mutableStateOf(24) }
+    val state by vm.state.collectAsState()
+    var input by rememberSaveable(tabId) { mutableStateOf("") }
     val scroll = rememberScrollState()
-
-    DisposableEffect(terminal) { onDispose { terminal.close() } }
-
-    LaunchedEffect(profile, projectPath) {
-        try {
-            val secret = withContext(Dispatchers.IO) { SshProfileRepository(context).loadSecret() }
-                ?: error("No SSH credentials stored")
-            terminal.run(profile, secret, projectPath) { chunk ->
-                // Display best-effort plain text; PTY itself preserves interactive input.
-                output = display.accept(chunk)
-            }
-            output += "\n[SSH terminal closed]"
-        } catch (error: Exception) {
-            output += "\n[Terminal error: ${error.message}]"
-        } finally {
-            running = false
-        }
-    }
-    LaunchedEffect(output.length) { scroll.animateScrollTo(scroll.maxValue) }
+    LaunchedEffect(profile, projectPath, tabId) { vm.start(profile, projectPath) }
+    LaunchedEffect(state.output) { scroll.animateScrollTo(scroll.maxValue) }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(12.dp),
@@ -78,11 +48,12 @@ fun PtyTerminalScreen(
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("SSH PTY · ${profile.host}", style = MaterialTheme.typography.titleMedium)
-            TextButton(onClick = { terminal.close(); onBack() }) { Text("Close") }
+            TextButton(onClick = { vm.close(); onBack() }) { Text("Close") }
         }
         Text(projectPath, style = MaterialTheme.typography.bodySmall)
+        state.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
         Text(
-            text = output.ifEmpty { "Connecting to terminal..." },
+            text = state.output.ifEmpty { if (state.running) "Connecting to terminal..." else "Terminal closed" },
             modifier = Modifier.weight(1f).fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .verticalScroll(scroll).padding(8.dp),
@@ -90,42 +61,36 @@ fun PtyTerminalScreen(
             style = MaterialTheme.typography.bodySmall,
         )
         OutlinedTextField(
-            value = input, onValueChange = { input = it },
-            enabled = running,
+            value = input,
+            onValueChange = { input = it },
+            enabled = state.running,
             label = { Text("Terminal input") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 1,
             maxLines = 3,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(enabled = running, onClick = { terminal.send("\u001b[A") }) { Text("↑") }
-            TextButton(enabled = running, onClick = { terminal.send("\u001b[B") }) { Text("↓") }
-            TextButton(enabled = running, onClick = { terminal.send("\u001b[D") }) { Text("←") }
-            TextButton(enabled = running, onClick = { terminal.send("\u001b[C") }) { Text("→") }
-            TextButton(enabled = running, onClick = { terminal.send("\t") }) { Text("Tab") }
-            TextButton(enabled = running, onClick = { terminal.send("\u001b") }) { Text("Esc") }
+            TextButton(enabled = state.running, onClick = { vm.send("\u001b[A") }) { Text("↑") }
+            TextButton(enabled = state.running, onClick = { vm.send("\u001b[B") }) { Text("↓") }
+            TextButton(enabled = state.running, onClick = { vm.send("\u001b[D") }) { Text("←") }
+            TextButton(enabled = state.running, onClick = { vm.send("\u001b[C") }) { Text("→") }
+            TextButton(enabled = state.running, onClick = { vm.send("\t") }) { Text("Tab") }
+            TextButton(enabled = state.running, onClick = { vm.send("\u001b") }) { Text("Esc") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(enabled = running && columns > 40, onClick = {
-                columns -= 10
-                output = display.resize(columns, rows)
-                terminal.resize(columns, rows)
-            }) { Text("− cols") }
-            Text("$columns × $rows", modifier = Modifier.padding(top = 12.dp))
-            TextButton(enabled = running && columns < 160, onClick = {
-                columns += 10
-                output = display.resize(columns, rows)
-                terminal.resize(columns, rows)
-            }) { Text("+ cols") }
+            TextButton(enabled = state.running && state.columns > 40,
+                onClick = { vm.resize(state.columns - 10, state.rows) }) { Text("− cols") }
+            Text("${state.columns} × ${state.rows}", modifier = Modifier.padding(top = 12.dp))
+            TextButton(enabled = state.running && state.columns < 160,
+                onClick = { vm.resize(state.columns + 10, state.rows) }) { Text("+ cols") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(enabled = running, onClick = {
-                terminal.send(input + "\n")
-                input = ""
+            Button(enabled = state.running, onClick = {
+                vm.send(input + "\n") { input = "" }
             }) { Text("Send / Enter") }
-            TextButton(enabled = running, onClick = { terminal.send("\n") }) { Text("Enter") }
-            TextButton(enabled = running, onClick = { terminal.interrupt() }) { Text("Ctrl-C") }
-            TextButton(enabled = running, onClick = { terminal.send("\u0004") }) { Text("Ctrl-D") }
+            TextButton(enabled = state.running, onClick = { vm.send("\n") }) { Text("Enter") }
+            TextButton(enabled = state.running, onClick = vm::interrupt) { Text("Ctrl-C") }
+            TextButton(enabled = state.running, onClick = { vm.send("\u0004") }) { Text("Ctrl-D") }
         }
     }
 }
