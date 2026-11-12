@@ -362,6 +362,9 @@ private fun PocketDevHome(
                                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                     Text(project.name, style = MaterialTheme.typography.titleMedium)
                                     Text(project.remotePath, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    state.currentGitBranch?.let { branch ->
+                                        Text("branch · $branch", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
                                 }
                                 Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                     Text("${profile.username}@${profile.host}", style = MaterialTheme.typography.bodySmall)
