@@ -78,6 +78,24 @@ class ProjectActionProfileTest {
         assertEquals("docker compose ps --all", ProjectCommandBuilder.command(b, "status", profiles))
     }
 
+    @Test fun androidAndDockerProfilesRemainProjectSpecificAndProjectRelative() {
+        val android = project("android-gradle").copy(name = "Android App", remotePath = "/srv/android app")
+        val compose = project("docker-compose").copy(name = "Web Service", remotePath = "/srv/web service")
+
+        assertEquals("./gradlew assembleDebug", ProjectCommandBuilder.command(android, "build"))
+        assertEquals("docker compose build", ProjectCommandBuilder.command(compose, "build"))
+        assertTrue(ProjectCommandBuilder.actionProfile(android).supportsApk)
+        assertFalse(ProjectCommandBuilder.actionProfile(compose).supportsApk)
+        assertEquals(
+            "cd '/srv/android app' && ./gradlew assembleDebug",
+            ProjectCommandBuilder.inProject(android, ProjectCommandBuilder.command(android, "build")),
+        )
+        assertEquals(
+            "cd '/srv/web service' && docker compose build",
+            ProjectCommandBuilder.inProject(compose, ProjectCommandBuilder.command(compose, "build")),
+        )
+    }
+
     @Test fun customAndroidProfileRetainsApkCapability() {
         val profile = ActionProfileTemplates.android.copy(id = "my-android", name = "My Android")
         val configured = project(profile.id).copy(testCommand = "ignored legacy")
