@@ -38,6 +38,41 @@ class WorkspaceTabsTest {
         assertEquals("compose", both[1].projectId)
     }
 
+    @Test fun closingActiveTabSelectsNeighbourWithoutChangingOtherTabIds() {
+        val state = WorkspaceTabSelection(emptyList(), null)
+            .add("android", "tab-a")
+            .add("android", "tab-b")
+            .add("compose", "tab-c")
+            .select("tab-b")
+        val closed = state.close("tab-b")
+        assertEquals(listOf("tab-a", "tab-c"), closed.tabs.map { it.id })
+        assertEquals("tab-c", closed.activeTabId)
+        assertEquals("compose", closed.activeTab?.projectId)
+        assertEquals("tab-a", closed.close("tab-c").activeTabId)
+        assertEquals(null, closed.close("tab-c").close("tab-a").activeTabId)
+    }
+
+    @Test fun changingActiveProjectDoesNotMutateOtherTabAssignments() {
+        val state = WorkspaceTabSelection(emptyList(), null)
+            .add("android", "tab-a")
+            .add("compose", "tab-b")
+        val changed = state.moveActiveTo("android")
+        assertEquals(listOf("android", "compose"), state.tabs.map { it.projectId })
+        assertEquals(listOf("android", "android"), changed.tabs.map { it.projectId })
+        assertEquals("tab-b", changed.activeTabId)
+    }
+
+    @Test fun migrationPreservesExistingProjectIdsAndDropsDeletedProjects() {
+        val projects = listOf(
+            project("android", "LightScenes", "android-gradle"),
+            project("compose", "Community", "docker-compose"),
+        )
+        val state = WorkspaceTabSelection.fromProjects(projects, "compose")
+        assertEquals(listOf("android", "compose"), state.tabs.map { it.id })
+        assertEquals("compose", state.activeTabId)
+        assertEquals("android", state.retainProjects(setOf("android")).activeTabId)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun duplicateTabIdentityIsRejected() {
         WorkspaceTabs.open(listOf(WorkspaceTab("tab-a", "android")), "android", "tab-a")
