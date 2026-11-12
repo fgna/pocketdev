@@ -59,6 +59,8 @@ import de.fgna.pocketdev.project.ActionProfileTemplates
 import de.fgna.pocketdev.project.ActionDefinition
 import de.fgna.pocketdev.project.ProjectCommandBuilder
 import de.fgna.pocketdev.project.ProjectConfig
+import de.fgna.pocketdev.project.WorkspaceTabSelection
+import de.fgna.pocketdev.project.WorkspaceTabs
 import de.fgna.pocketdev.ssh.AuthMode
 import de.fgna.pocketdev.ui.PocketDevCompactMeta
 import de.fgna.pocketdev.ui.PocketDevContextStrip
@@ -106,10 +108,12 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                 state = state,
                 onConfigure = vm::openEditor,
                 onProjects = { projectSwitcherOpen = true },
-                onSelectProject = { projectId ->
-                    vm.selectProject(projectId)
+                onSelectProject = { tabId ->
+                    vm.selectTab(tabId)
                     issueDraft = null
                 },
+                onOpenTab = vm::openTab,
+                onCloseTab = vm::closeTab,
                 onProjectAction = runProjectAction,
                 onDownloadArtifact = vm::downloadLatestApk,
                 onOpenArtifact = { path -> openApk(context, path) },
@@ -268,6 +272,8 @@ private fun PocketDevHome(
     onConfigure: () -> Unit,
     onProjects: () -> Unit,
     onSelectProject: (String) -> Unit,
+    onOpenTab: (String) -> Unit,
+    onCloseTab: (String) -> Unit,
     onProjectAction: (String) -> Unit,
     onDownloadArtifact: () -> Unit,
     onOpenArtifact: (String) -> Unit,
@@ -329,9 +335,11 @@ private fun PocketDevHome(
         bottomBar = {
             BottomProjectTabs(
                 projects = state.projects,
-                activeProjectId = project?.id,
+                tabs = state.tabSelection,
                 sessions = state.sessions,
                 onSelect = onSelectProject,
+                onOpenTab = onOpenTab,
+                onCloseTab = onCloseTab,
                 onAddProject = onProjects,
             )
         },
@@ -595,34 +603,44 @@ private fun GitKeyUnlockDialog(
 @Composable
 private fun BottomProjectTabs(
     projects: List<ProjectConfig>,
-    activeProjectId: String?,
+    tabs: WorkspaceTabSelection,
     sessions: Map<String, ProjectSessionState>,
     onSelect: (String) -> Unit,
+    onOpenTab: (String) -> Unit,
+    onCloseTab: (String) -> Unit,
     onAddProject: () -> Unit,
 ) {
+    val titles = WorkspaceTabs.labels(tabs.tabs, projects)
     Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp, shadowElevation = 6.dp) {
         Column {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Text("Projects · ${projects.size}", modifier = Modifier.padding(start = 12.dp, top = 5.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Tabs · ${tabs.tabs.size}", modifier = Modifier.padding(start = 12.dp, top = 5.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 8.dp, vertical = 5.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                if (projects.isEmpty()) {
-                    TextButton(onClick = onAddProject) { Text("Add project") }
-                } else {
-                    projects.forEach { tabProject ->
-                        val session = sessions[tabProject.id]
-                        val running = session?.command?.running == true || session?.artifact?.downloading == true
-                        val failed = session?.command?.exitCode?.let { it != 0 } == true || session?.command?.connectionError != null || session?.artifact?.error != null
-                        val label = buildString {
-                            if (running) append("● ") else if (failed) append("! ")
-                            append(tabProject.name)
-                        }
-                        if (tabProject.id == activeProjectId) Button(onClick = { onSelect(tabProject.id) }) { Text(label) }
-                        else OutlinedButton(onClick = { onSelect(tabProject.id) }) { Text(label) }
+                titles.forEach { tab ->
+                    val session = sessions[tab.tabId]
+                    val running = session?.command?.running == true || session?.artifact?.downloading == true
+                    val failed = session?.command?.exitCode?.let { it != 0 } == true ||
+                        session?.command?.connectionError != null || session?.artifact?.error != null
+                    val label = buildString {
+                        if (running) append("● ") else if (failed) append("! ")
+                        append(tab.title)
                     }
+                    if (tab.tabId == tabs.activeTabId) {
+                        Button(onClick = { onSelect(tab.tabId) }) { Text(label) }
+                    } else {
+                        OutlinedButton(onClick = { onSelect(tab.tabId) }) { Text(label) }
+                    }
+                    // Keep running tabs open until the execution finishes.
+                    if (!running) TextButton(onClick = { onCloseTab(tab.tabId) }) { Text("×") }
                 }
+                val currentProjectId = tabs.activeTab?.projectId
+                if (currentProjectId != null) {
+                    OutlinedButton(onClick = { onOpenTab(currentProjectId) }) { Text("+ Tab") }
+                }
+                TextButton(onClick = onAddProject) { Text(if (projects.isEmpty()) "Add project" else "Projects") }
             }
         }
     }
