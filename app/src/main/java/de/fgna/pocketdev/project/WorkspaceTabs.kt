@@ -7,6 +7,7 @@ package de.fgna.pocketdev.project
 data class WorkspaceTab(
     val id: String,
     val projectId: String,
+    val customTitle: String? = null,
 )
 
 data class WorkspaceTabLabel(
@@ -43,6 +44,9 @@ data class WorkspaceTabSelection(
 
     fun add(projectId: String, newTabId: String): WorkspaceTabSelection =
         WorkspaceTabSelection(WorkspaceTabs.open(tabs, projectId, newTabId), newTabId)
+
+    fun rename(tabId: String, title: String): WorkspaceTabSelection =
+        copy(tabs = WorkspaceTabs.rename(tabs, tabId, title))
 
     fun moveActiveTo(projectId: String): WorkspaceTabSelection {
         val active = activeTab ?: return this
@@ -93,6 +97,12 @@ object WorkspaceTabs {
     fun close(tabs: List<WorkspaceTab>, tabId: String): List<WorkspaceTab> =
         tabs.filterNot { it.id == tabId }
 
+    fun rename(tabs: List<WorkspaceTab>, tabId: String, title: String): List<WorkspaceTab> {
+        require(tabs.any { it.id == tabId }) { "Unknown tab" }
+        val normalized = title.trim().take(60).ifBlank { null }
+        return tabs.map { if (it.id == tabId) it.copy(customTitle = normalized) else it }
+    }
+
     fun reassign(tabs: List<WorkspaceTab>, tabId: String, projectId: String): List<WorkspaceTab> {
         require(projectId.isNotBlank()) { "Project ID is required" }
         require(tabs.any { it.id == tabId }) { "Unknown tab" }
@@ -117,7 +127,7 @@ object WorkspaceTabs {
             WorkspaceTabLabel(
                 tabId = tab.id,
                 projectId = tab.projectId,
-                title = if (counts.getValue(tab.projectId) > 1) "$name $ordinal" else name,
+                title = tab.customTitle ?: if (counts.getValue(tab.projectId) > 1) "$name $ordinal" else name,
             )
         }
     }
