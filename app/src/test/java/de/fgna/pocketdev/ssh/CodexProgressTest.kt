@@ -60,6 +60,11 @@ class CodexProgressTest {
     @Test fun genericCommandsKeepRawStreaming() {
         val state = CommandStateReducer.reduce(CommandUiState(command = "echo hello"), CommandEvent.Output(OutputStreamKind.STDOUT, "hello"))
         assertEquals("hello", state.stdout)
+        val bigGeneric = CommandStateReducer.reduce(
+            CommandUiState(command = "cat large.log"),
+            CommandEvent.Output(OutputStreamKind.STDOUT, "x".repeat(150_000)),
+        )
+        assertEquals(150_000, bigGeneric.stdout.length)
         assertNull(state.codexAction)
         assertFalse(CodexProgress.enabled("codex exec hello"))
         assertTrue(CodexProgress.enabled("codex exec --json hello"))
