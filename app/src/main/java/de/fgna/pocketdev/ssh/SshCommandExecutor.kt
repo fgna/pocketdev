@@ -193,15 +193,8 @@ class SshjCommandExecutor : SshCommandExecutor {
         completion?.let { trySend(it) }
     }
 
-    private fun interactiveSudoCommand(command: String): String = """
-        exec 3<&0
-        sudo() {
-          command sudo -S -p '$SUDO_PROMPT' -v <&3 || return
-          command sudo -n "${'$'}@"
-        }
-        $command
-    """.trimIndent()
-
+    private fun interactiveSudoCommand(command: String): String =
+        interactiveSudoPrelude() + "\n" + command
     private fun createAndroidCompatibleClient(): SSHClient {
         val config = DefaultSecurityProviderConfig().apply {
             setKeyAlgorithms(listOf(KeyAlgorithms.RSASHA512(), KeyAlgorithms.RSASHA256()))
@@ -250,6 +243,15 @@ class SshjCommandExecutor : SshCommandExecutor {
 
     companion object {
         private const val SUDO_PROMPT = SudoPromptParser.MARKER
+
+        /** Reuse the exact stdin-backed sudo prompt in nested Bash shells. */
+        internal fun interactiveSudoPrelude(): String = """
+            exec 3<&0
+            sudo() {
+              command sudo -S -p '$SUDO_PROMPT' -v <&3 || return
+              command sudo -n "$@"
+            }
+        """.trimIndent()
         private val activeCommands = ConcurrentHashMap<String, ActiveCommand>()
         private val activeUserCommands = ConcurrentHashMap.newKeySet<String>()
         private val activeCommandListeners = ConcurrentHashMap.newKeySet<(Int) -> Unit>()
