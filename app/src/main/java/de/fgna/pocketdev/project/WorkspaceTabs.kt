@@ -20,6 +20,65 @@ data class WorkspaceTabLabel(
  * commands, input handles, cancellation and artifact state by tab ID before duplicate tabs
  * are exposed in the UI.
  */
+/**
+ * Immutable navigation state. Tab IDs stay stable across selections, while a tab may target
+ * a different saved project. Closing the active tab selects a surviving neighbour.
+ */
+data class WorkspaceTabSelection(
+    val tabs: List<WorkspaceTab>,
+    val activeTabId: String?,
+) {
+    init {
+        require(tabs.map { it.id }.distinct().size == tabs.size) { "Duplicate tab IDs" }
+        require(activeTabId == null || tabs.any { it.id == activeTabId }) { "Active tab must exist" }
+    }
+
+    val activeTab: WorkspaceTab?
+        get() = tabs.firstOrNull { it.id == activeTabId }
+
+    fun select(tabId: String): WorkspaceTabSelection {
+        require(tabs.any { it.id == tabId }) { "Unknown tab" }
+        return copy(activeTabId = tabId)
+    }
+
+    fun add(projectId: String, newTabId: String): WorkspaceTabSelection =
+        WorkspaceTabSelection(WorkspaceTabs.open(tabs, projectId, newTabId), newTabId)
+
+    fun moveActiveTo(projectId: String): WorkspaceTabSelection {
+        val active = activeTab ?: return this
+        return copy(tabs = WorkspaceTabs.reassign(tabs, active.id, projectId))
+    }
+
+    fun close(tabId: String): WorkspaceTabSelection {
+        val index = tabs.indexOfFirst { it.id == tabId }
+        if (index < 0) return this
+        val remaining = WorkspaceTabs.close(tabs, tabId)
+        val nextActive = if (activeTabId == tabId) {
+            remaining.getOrNull(index.coerceAtMost(remaining.lastIndex))?.id
+        } else {
+            activeTabId
+        }
+        return WorkspaceTabSelection(remaining, nextActive)
+    }
+
+    fun retainProjects(validProjectIds: Set<String>): WorkspaceTabSelection {
+        val remaining = tabs.filter { it.projectId in validProjectIds }
+        val selected = activeTabId?.takeIf { id -> remaining.any { it.id == id } }
+            ?: remaining.firstOrNull()?.id
+        return WorkspaceTabSelection(remaining, selected)
+    }
+
+    companion object {
+        /** Initial migration: retain the previous one-tab-per-project layout. */
+        fun fromProjects(projects: List<ProjectConfig>, activeProjectId: String?): WorkspaceTabSelection {
+            val tabs = projects.map { WorkspaceTab(it.id, it.id) }
+            val active = activeProjectId?.takeIf { id -> tabs.any { it.id == id } }
+                ?: tabs.firstOrNull()?.id
+            return WorkspaceTabSelection(tabs, active)
+        }
+    }
+}
+
 object WorkspaceTabs {
     fun open(
         tabs: List<WorkspaceTab>,
