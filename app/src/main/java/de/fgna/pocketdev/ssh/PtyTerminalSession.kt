@@ -118,7 +118,7 @@ class PtyTerminalSession {
                 "Project directory must be a valid absolute path."
             }
             val quoted = "'" + directory.replace("'", "'\\''") + "'"
-            return "cd $quoted || { printf 'PocketDev: project directory unavailable\n'; exit 1; }\n"
+            return "cd $quoted || { echo 'PocketDev: project directory unavailable' >&2; exit 1; }\n"
         }
     }
 }
