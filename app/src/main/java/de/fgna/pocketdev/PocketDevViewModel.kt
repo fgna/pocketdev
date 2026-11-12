@@ -134,7 +134,7 @@ class PocketDevViewModel(
 
     init {
         refreshGitKeyStatus()
-        _state.value.project?.id?.let(::refreshGitBranch)
+        _state.value.activeTabId?.let(::refreshGitBranch)
     }
 
     fun openEditor() {
@@ -181,7 +181,7 @@ class PocketDevViewModel(
             )
         }
         refreshGitKeyStatus()
-        _state.value.project?.id?.let(::refreshGitBranch)
+        _state.value.activeTabId?.let(::refreshGitBranch)
     }
 
     fun openProjectEditor() {
@@ -259,14 +259,16 @@ class PocketDevViewModel(
                         buildCommand = "./gradlew assembleDebug",
                     )
                     val collection = projectRepository.upsert(project, makeActive = true)
+                    val tabs = _state.value.tabSelection.add(collection.activeProject!!.id, "tab-${UUID.randomUUID()}")
                     updateState {
-                        val sessions = ensureSessions(collection.projects, it.sessions)
-                        it.copy(projects = collection.projects,
-                            project = displayProject(collection.activeProject, sessions),
+                        val sessions = ensureSessions(collection.projects, it.sessions, tabs)
+                        it.copy(projects = collection.projects, tabSelection = tabs,
+                            project = displayProject(collection.activeProject, sessions, tabs.activeTabId),
                             sessions = sessions, quickImportOpen = false,
                             quickImportBusy = false, quickImportError = null)
                     }
-                    collection.activeProject?.id?.let(::refreshGitBranch)
+                    persistTabs(tabs)
+                    tabs.activeTabId?.let(::refreshGitBranch)
                 } else {
                     val message = when {
                         output.contains("POCKETDEV_IMPORT_CONFLICT") -> "The Projects folder already contains a different checkout. Use Advanced to select another location."
@@ -682,7 +684,7 @@ class PocketDevViewModel(
             }
             if (ready) {
                 if (_state.value.pendingProjectCreate != null) createPendingProject()
-                _state.value.project?.id?.let(::refreshGitBranch)
+                _state.value.activeTabId?.let(::refreshGitBranch)
             }
         }
     }
@@ -703,7 +705,7 @@ class PocketDevViewModel(
         val secret = repository.loadSecret()
         if (secret.isNullOrBlank()) return
         val command = runCatching { ProjectProvisioning.createCommand(project) }.getOrElse { error ->
-            updateSession(project.id) { session ->
+            updateSession(request.tabId) { session ->
                 session.copy(command = session.command.copy(connectionError = error.message ?: "Project could not be created."))
             }
             dismissProjectCreate()
@@ -711,7 +713,7 @@ class PocketDevViewModel(
         }
 
         updateState { it.copy(pendingProjectCreate = null) }
-        updateSession(project.id) {
+        updateSession(request.tabId) {
             it.copy(command = it.command.copy(running = true, stdout = "", stderr = "", exitCode = null, connectionError = null))
         }
         viewModelScope.launch {
@@ -722,24 +724,24 @@ class PocketDevViewModel(
                 profile = profile,
                 secret = secret,
                 command = GitSshAgent.wrap(command),
-                commandId = project.id,
+                commandId = request.tabId,
             ).collect { event ->
                 when (event) {
                     is CommandEvent.Output -> {
                         if (event.stream == OutputStreamKind.STDOUT) stdout += event.text
-                        updateSession(project.id) { session ->
+                        updateSession(request.tabId) { session ->
                             session.copy(command = CommandStateReducer.reduce(session.command, event))
                         }
                     }
                     is CommandEvent.Completed -> {
                         exitCode = event.exitCode
-                        updateSession(project.id) { session ->
+                        updateSession(request.tabId) { session ->
                             session.copy(command = CommandStateReducer.reduce(session.command, event))
                         }
                     }
                     is CommandEvent.ConnectionFailed -> {
                         connectionError = event.message
-                        updateSession(project.id) { session ->
+                        updateSession(request.tabId) { session ->
                             session.copy(command = CommandStateReducer.reduce(session.command, event))
                         }
                     }
@@ -748,13 +750,13 @@ class PocketDevViewModel(
             }
             refreshGitKeyStatus()
             if (connectionError == null && exitCode == 0 && stdout.contains(ProjectProvisioning.CREATED_MARKER)) {
-                updateSession(project.id) { session ->
+                updateSession(request.tabId) { session ->
                     session.copy(
                         workingDirectory = project.remotePath,
                         command = session.command.copy(command = request.command, running = false),
                     )
                 }
-                runCommandFor(project.id, skipProjectCheck = true)
+                runCommandFor(request.tabId, skipProjectCheck = true)
             }
         }
     }
@@ -764,7 +766,10 @@ class PocketDevViewModel(
         if (command.isBlank()) return
         val collection = projectRepository.upsert(project.withCommandFavorite(command, saved), makeActive = false)
         updateState {
-            it.copy(projects = collection.projects, project = displayProject(collection.activeProject, it.sessions))
+            it.copy(projects = collection.projects, project = displayProject(
+                collection.projects.firstOrNull { entry -> entry.id == it.tabSelection.activeTab?.projectId },
+                it.sessions, it.activeTabId,
+            ))
         }
     }
 
@@ -820,7 +825,7 @@ class PocketDevViewModel(
             updateSession(tabId) { it.copy(command = it.command.copy(connectionError = "No authentication secret is stored.")) }
             return
         }
-        val session = _state.value.sessions[projectId] ?: return
+        val session = _state.value.sessions[tabId] ?: return
         if (session.command.running) return
         val commandText = session.command.command.trim()
         if (commandText.isEmpty()) return
