@@ -1055,11 +1055,10 @@ class PocketDevViewModel(
             ids.distinct().size == ids.size && ids.all { it.isNotBlank() }) {
             val tabs = ids.zip(projectIds).map { (id, projectId) -> WorkspaceTab(id, projectId) }
                 .filter { it.projectId in validIds }
-            if (tabs.isNotEmpty()) {
-                val activeId = savedStateHandle.get<String>("tabs.active")
-                    ?.takeIf { id -> tabs.any { it.id == id } } ?: tabs.first().id
-                return WorkspaceTabSelection(tabs, activeId)
-            }
+            // An intentionally closed tab bar must remain empty after recreation.
+            val activeId = savedStateHandle.get<String>("tabs.active")
+                ?.takeIf { id -> tabs.any { it.id == id } } ?: tabs.firstOrNull()?.id
+            return WorkspaceTabSelection(tabs, activeId)
         }
         return WorkspaceTabSelection.fromProjects(projects, activeProjectId)
     }
