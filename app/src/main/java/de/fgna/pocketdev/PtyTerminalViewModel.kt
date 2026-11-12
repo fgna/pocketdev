@@ -9,6 +9,7 @@ import de.fgna.pocketdev.ssh.SshProfile
 import de.fgna.pocketdev.ssh.TerminalScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,6 +27,8 @@ data class PtyTerminalState(
 
 /** Retains a tab's live PTY and screen through Android Activity recreation. */
 class PtyTerminalViewModel(application: Application) : AndroidViewModel(application) {
+    // Cleanup must outlive viewModelScope cancellation during Activity teardown.
+    private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var session = PtyTerminalSession()
     private var screen = TerminalScreen()
     @Volatile private var generation = 0L
@@ -38,7 +41,7 @@ class PtyTerminalViewModel(application: Application) : AndroidViewModel(applicat
         if (identity == id) return
         val previous = session
         // Closing an SSH socket may block; never perform it from a Compose callback.
-        viewModelScope.launch(Dispatchers.IO) { previous.close() }
+        cleanupScope.launch { previous.close() }
         session = PtyTerminalSession()
         screen = TerminalScreen()
         val current = session
@@ -100,14 +103,14 @@ class PtyTerminalViewModel(application: Application) : AndroidViewModel(applicat
         val closing = session
         identity = null
         _state.update { it.copy(running = false) }
-        viewModelScope.launch(Dispatchers.IO) { closing.close() }
+        cleanupScope.launch { closing.close() }
     }
 
     override fun onCleared() {
         // viewModelScope is cancelled at the end of onCleared; cleanup needs
         // its own short-lived IO coroutine so it cannot block the UI thread.
         val closing = session
-        CoroutineScope(Dispatchers.IO).launch { closing.close() }
+        cleanupScope.launch { closing.close() }
         super.onCleared()
     }
 }
