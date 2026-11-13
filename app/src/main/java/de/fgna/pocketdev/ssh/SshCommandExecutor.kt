@@ -117,7 +117,7 @@ class SshjCommandExecutor : SshCommandExecutor {
             send(CommandEvent.Connected)
 
             session = withContext(Dispatchers.IO) { connected.startSession() }
-            val effectiveCommand = if (interactiveSudo) interactiveSudoCommand(command) else command
+            val effectiveCommand = remoteCommand(profile, command, interactiveSudo)
             remote = withContext(Dispatchers.IO) { session!!.exec(effectiveCommand) }
             writer = remote!!.outputStream.bufferedWriter()
             cancelledCommands.remove(controlKey)
@@ -164,6 +164,9 @@ class SshjCommandExecutor : SshCommandExecutor {
             stdoutJob.join()
             stderrJob.join()
             val exitCode = if (cancelledCommands.contains(controlKey)) 130 else remote!!.exitStatus ?: -1
+            environmentHint(exitCode)?.let { hint ->
+                trySend(CommandEvent.Output(OutputStreamKind.STDERR, hint))
+            }
             completion = CommandEvent.Completed(exitCode)
         } catch (error: Exception) {
             if (cancelledCommands.contains(controlKey)) {
@@ -252,6 +255,18 @@ class SshjCommandExecutor : SshCommandExecutor {
               command sudo -n "$@"
             }
         """.trimIndent()
+
+        internal fun remoteCommand(profile: SshProfile, command: String, interactiveSudo: Boolean): String {
+            val script = if (interactiveSudo) interactiveSudoPrelude() + "\n" + command else command
+            return if (profile.loginShell) "bash -lc " + shellQuote(script) else script
+        }
+
+        internal fun environmentHint(exitCode: Int): String? = if (exitCode == 127) {
+            "\nPocketDev hint: command not found. Command mode uses the server login environment when “Use login shell” is enabled in Server settings; the PTY terminal is interactive and may load different shell files.\n"
+        } else null
+
+        private fun shellQuote(value: String): String = "'" + value.replace("'", "'\"'\"'") + "'"
+
         private val activeCommands = ConcurrentHashMap<String, ActiveCommand>()
         private val activeUserCommands = ConcurrentHashMap.newKeySet<String>()
         private val activeCommandListeners = ConcurrentHashMap.newKeySet<(Int) -> Unit>()

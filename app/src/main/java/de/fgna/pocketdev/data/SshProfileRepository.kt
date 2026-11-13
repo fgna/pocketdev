@@ -28,6 +28,7 @@ class SshProfileRepository(context: Context) {
                 username = username,
                 hostKeySha256 = fingerprint,
                 authMode = authMode,
+                loginShell = prefs.getBoolean("loginShell", true),
             ),
             hasSecret = !secretStore.get(SECRET_KEY).isNullOrEmpty(),
         )
@@ -40,6 +41,7 @@ class SshProfileRepository(context: Context) {
             .putString("username", profile.username)
             .putString("hostKeySha256", profile.hostKeySha256)
             .putString("authMode", profile.authMode.name)
+            .putBoolean("loginShell", profile.loginShell)
             .apply()
 
         if (!secret.isNullOrEmpty()) {

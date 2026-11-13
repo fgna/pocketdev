@@ -43,6 +43,7 @@ data class ProfileEditorState(
     val port: String = "22",
     val username: String = "",
     val authMode: AuthMode = AuthMode.PASSWORD,
+    val loginShell: Boolean = true,
     val secret: String = "",
 )
 
@@ -148,6 +149,7 @@ class PocketDevViewModel(
                     port = current.port.toString(),
                     username = current.username,
                     authMode = current.authMode,
+                    loginShell = current.loginShell,
                 ),
             )
         }
@@ -169,6 +171,7 @@ class PocketDevViewModel(
             username = editor.username.trim(),
             hostKeySha256 = existingFingerprint,
             authMode = editor.authMode,
+            loginShell = editor.loginShell,
         )
         repository.save(profile, editor.secret.ifBlank { null })
         updateState {

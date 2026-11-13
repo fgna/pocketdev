@@ -6,6 +6,7 @@ data class SshProfile(
     val username: String,
     val hostKeySha256: String = "",
     val authMode: AuthMode = AuthMode.PASSWORD,
+    val loginShell: Boolean = true,
 )
 
 enum class AuthMode {
