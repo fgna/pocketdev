@@ -17,7 +17,7 @@ class RemoteCommandBuilderTest {
         val command = "printf '%s\\n' \"\$HOME\"\nprintf \"%s\\n\" \"it's \$PATH\""
 
         assertEquals(
-            "bash -lc 'printf '\"'\"'%s\\n'\"'\"' \"\$HOME\"\\nprintf \"%s\\n\" \"it'\"'\"'s \$PATH\"'",
+            "bash -lc 'printf '\"'\"'%s\\n'\"'\"' \"\$HOME\"\nprintf \"%s\\n\" \"it'\"'\"'s \$PATH\"'",
             SshjCommandExecutor.remoteCommand(baseProfile, command, interactiveSudo = false),
         )
     }
