@@ -110,6 +110,7 @@ PocketDev assumes the SSH server is infrastructure you already control. It is no
 - `docs/git-key-agent.md` — persistent Git SSH-agent behavior.
 - [Action profiles](docs/action-profiles.md) — configure, reuse and customize project buttons.
 - [Command input](docs/command-input.md) — replies to running commands and device acceptance checks.
+- [Command and terminal environments](docs/command-environment.md) — login-shell behavior, startup files and persistent PATH setup.
 - [Codex CLI from PocketDev](docs/codex-remote-tmux.md) — tmux-backed remote agent runs that survive mobile SSH disconnects.
 - `docs/user-testing-apk-installer.md` — APK installer test notes.
 
