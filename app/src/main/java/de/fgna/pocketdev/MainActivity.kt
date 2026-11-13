@@ -36,6 +36,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -791,6 +792,13 @@ private fun ProfileDialog(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { onChange { it.copy(authMode = AuthMode.PASSWORD) } }, enabled = state.authMode != AuthMode.PASSWORD) { Text("Password") }
                     OutlinedButton(onClick = { onChange { it.copy(authMode = AuthMode.PRIVATE_KEY) } }, enabled = state.authMode != AuthMode.PRIVATE_KEY) { Text("Private key") }
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Use login shell")
+                        Text("Loads the server login environment for command mode.", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked = state.loginShell, onCheckedChange = { enabled -> onChange { it.copy(loginShell = enabled) } })
                 }
                 OutlinedTextField(value = state.secret, onValueChange = { value -> onChange { it.copy(secret = value) } }, label = { Text(if (state.authMode == AuthMode.PASSWORD) "Password" else "Private key (PEM)") }, visualTransformation = if (state.authMode == AuthMode.PASSWORD) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None, supportingText = { Text("Leave empty to keep the stored secret.") }, minLines = if (state.authMode == AuthMode.PRIVATE_KEY) 4 else 1)
             }
