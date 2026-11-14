@@ -28,6 +28,7 @@ class PtyTerminalSession {
         profile: SshProfile,
         secret: String,
         directory: String,
+        columns: () -> Int,
         onOutput: (String) -> Unit,
     ): Unit = withContext(Dispatchers.IO) {
         require(profile.hostKeySha256.isNotBlank()) { "Trust this SSH host in PocketDev first." }
@@ -55,10 +56,12 @@ class PtyTerminalSession {
             }
             val channel = client.startSession()
             session = channel
-            channel.allocatePTY("xterm", 80, 24, 0, 0, emptyMap())
+            channel.allocatePTY("xterm", columns().coerceIn(20, 160), 24, 0, 0, emptyMap())
             val remote = channel.startShell()
             shell = remote
             input = remote.outputStream
+            // A viewport measurement can arrive during SSH authentication.
+            runCatching { remote.changeWindowDimensions(columns().coerceIn(20, 160), 24, 0, 0) }
             // Never leave users in $HOME when the project directory is missing.
             // A failed initial write also aborts the PTY instead of showing a misleading shell.
             check(send(projectStartupCommand(directory))) {
