@@ -8,7 +8,13 @@ Choose Android / Gradle, Docker Compose, General project, or one of your saved
 profiles. Selecting a different profile replaces the action list in the editor;
 save the project to apply it.
 
-The built-in Android / Gradle profile defaults to `cd android && ./gradlew test`\nfor Test and `cd android && ./gradlew assembleDebug` for Build. Both\ncommands can be edited independently for each repository. For projects with\n`gradlew` in the repository root, use `./gradlew test` and\n`./gradlew assembleDebug` instead. Existing saved commands are retained.\n\nFor each action, use **Edit** to change its button label, multiline shell command,
+The built-in Android / Gradle profile defaults to `cd android && ./gradlew test`
+for Test and `cd android && ./gradlew assembleDebug` for Build. Both
+commands can be edited independently for each repository. For projects with
+`gradlew` in the repository root, use `./gradlew test` and
+`./gradlew assembleDebug` instead. Existing saved commands are retained.
+
+For each action, use **Edit** to change its button label, multiline shell command,
 and confirmation setting. Use the checkbox to hide/show the button and **Up/Down**
 to reorder it. Additional actions can be removed. Inherited actions can be disabled.
 New actions request confirmation by default. Built-in Docker Stop also requests
@@ -46,7 +52,8 @@ PocketDev, verify/install it with the usual installer workflow, then:
    its buttons survive. Run Status, Start, Build and Logs; verify output and exit
    status. Test Stop's confirmation first with Cancel, then with Run.
 3. Edit Logs, disable Build, reorder actions and add a harmless multiline command
-   such as `printf 'first\n'` followed by `pwd`. Save, restart and verify the settings
+   such as `printf 'first
+'` followed by `pwd`. Save, restart and verify the settings
    and execution. Removing and adding custom actions must not create duplicate IDs.
 4. Save a custom profile and assign it to a second project. Customize one action
    only in that project. Update the shared profile, and verify both projects get
