@@ -42,6 +42,12 @@ PocketDev 1.x is functionally complete for its intended core workflow and is mai
 
 The Gradle wrapper is checked into the repository, so no global Gradle installation is required.
 
+## Command shell environment
+
+Command fields, favorites and project actions start a fresh SSH session for each command. The SSH profile's **Login shell** option is enabled by default and runs each command through `bash -lc`, loading login environment configuration (typically `~/.profile`) and allowing tools in `~/.local/bin` to be found on later commands. Updating `PATH` with `source ~/.bashrc` in a single command does not persist to the next command. Put permanent PATH exports in `~/.profile` or another login-shell startup file. On Ubuntu, `.bashrc` may return immediately in non-interactive shells.
+
+Disable **Login shell** in the SSH profile to use the previous non-login execution behavior. The PTY terminal is an interactive shell and may load a different set of startup files. An exit code of 127 displays a PATH diagnostic hint. Login shells use Bash and require `bash` on the remote host.
+
 ## Build and test
 
 ```bash
