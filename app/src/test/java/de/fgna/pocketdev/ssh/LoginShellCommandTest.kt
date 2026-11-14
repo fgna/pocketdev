@@ -7,13 +7,13 @@ import org.junit.Test
 
 class LoginShellCommandTest {
     @Test fun loginShellQuotesMultilineCommandsWithoutExpansion() {
-        val command = "echo 'single' \"double\" \\$HOME\n" + "printf '%s\\n' \"\$PATH\""
+        val command = "echo 'single' \"double\" \$HOME\n" + "printf '%s\\n' \"\$PATH\""
         val wrapped = RemoteShellCommand.build(command, loginShell = true, interactiveSudo = false)
         assertEquals("bash -lc '" + command.replace("'", "'\\''") + "'", wrapped)
     }
 
     @Test fun disabledLoginShellPreservesOriginalCommand() {
-        val command = "echo 'raw' && printf \"%s\" \\$HOME\n"
+        val command = "echo 'raw' && printf \"%s\" \$HOME\n"
         assertEquals(command, RemoteShellCommand.build(command, loginShell = false, interactiveSudo = false))
     }
 
