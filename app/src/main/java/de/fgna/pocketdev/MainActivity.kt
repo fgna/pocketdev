@@ -501,7 +501,12 @@ private fun PocketDevHome(
 
                             when {
                                 artifact.error != null -> Text("APK: ${artifact.error}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                                artifact.localPath != null -> Text("APK: ${File(artifact.localPath).name}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                artifact.localPath != null -> Text(
+                                    "APK: ${artifact.remotePath ?: File(artifact.localPath).name}\nSHA-256: ${artifact.sha256 ?: "unknown"}" +
+                                        (artifact.sizeBytes?.let { "\nSize: $it bytes" } ?: ""),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                         }
                     }
