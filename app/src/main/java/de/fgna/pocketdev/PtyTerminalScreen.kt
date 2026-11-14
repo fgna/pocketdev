@@ -73,8 +73,10 @@ fun PtyTerminalScreen(
             Row(modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Terminal · ${profile.host}", style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 PocketDevNavigationMenu(onNavigate = { destination ->
-                    vm.close()
-                    onNavigate(destination)
+                    if (destination != "Interactive SSH terminal") {
+                        vm.close()
+                        onNavigate(destination)
+                    }
                 })
             }
         }
