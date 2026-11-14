@@ -94,7 +94,7 @@ fun PtyTerminalScreen(
             modifier = Modifier.weight(1f),
             singleLine = true,
         )
-        Button(enabled = state.running, onClick = { vm.send(input + "\\n") { input = "" } }) { Text("Send") }
+        Button(enabled = state.running, onClick = { vm.send(input + "\n") { input = "" } }) { Text("Send") }
         }
         Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(0.dp)) {
             TextButton(enabled = state.running, onClick = { vm.send("\u001b[A") }) { Text("↑") }
@@ -115,9 +115,9 @@ fun PtyTerminalScreen(
         }
         }
         Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(0.dp)) {
-            TextButton(enabled = state.running, onClick = { vm.send("\\n") }) { Text("Enter") }
+            TextButton(enabled = state.running, onClick = { vm.send("\n") }) { Text("Enter") }
             TextButton(enabled = state.running, onClick = vm::interrupt) { Text("Ctrl-C") }
-            TextButton(enabled = state.running, onClick = { vm.send("\\u0004") }) { Text("Ctrl-D") }
+            TextButton(enabled = state.running, onClick = { vm.send("\u0004") }) { Text("Ctrl-D") }
         }
     }
 }
