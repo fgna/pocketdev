@@ -35,7 +35,7 @@ class PtyTerminalViewModel(application: Application) : AndroidViewModel(applicat
     private val _state = MutableStateFlow(PtyTerminalState())
     val state = _state.asStateFlow()
     private var identity: String? = null
-    private var viewportColumns = 80
+    @Volatile private var viewportColumns = 80
 
     fun start(profile: SshProfile, directory: String) {
         val id = "${profile.host}:${profile.port}:${profile.username}:$directory"
@@ -101,7 +101,6 @@ class PtyTerminalViewModel(application: Application) : AndroidViewModel(applicat
         val token = generation
         viewModelScope.launch {
             val resized = withContext(Dispatchers.IO) { current.resize(columns, rows) }
-            if (token != generation) return@launch
             if (token != generation) return@launch
             // The SSH channel may still be connecting; allocatePTY reads viewportColumns on start.
             if (resized || _state.value.running) {
