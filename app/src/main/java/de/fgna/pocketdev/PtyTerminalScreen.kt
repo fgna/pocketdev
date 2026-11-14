@@ -3,9 +3,14 @@ package de.fgna.pocketdev
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -50,7 +55,10 @@ fun PtyTerminalScreen(
     var input by rememberSaveable(tabId) { mutableStateOf("") }
     val scroll = rememberScrollState()
     val horizontalScroll = rememberScrollState()
-    var showSizeControls by rememberSaveable(tabId) { mutableStateOf(false) }
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val charWidthPx = textMeasurer.measure("M", style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp)).size.width.coerceAtLeast(1)
+    val horizontalPaddingPx = with(density) { 16.dp.roundToPx() }
     LaunchedEffect(profile, projectPath, tabId) { vm.start(profile, projectPath) }
     LaunchedEffect(state.output) { scroll.animateScrollTo(scroll.maxValue) }
 
@@ -73,17 +81,22 @@ fun PtyTerminalScreen(
         }
         PocketDevSectionLabel("Live output")
         state.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-        Text(
-            text = state.output.ifEmpty { if (state.running) "Connecting to terminal..." else "Terminal closed" },
-            modifier = Modifier.weight(1f).fillMaxWidth()
-                .background(Color(0xFF171A1B), MaterialTheme.shapes.small)
-                .verticalScroll(scroll).horizontalScroll(horizontalScroll).padding(8.dp),
-            color = Color(0xFFF0F2F2),
-            fontFamily = FontFamily.Monospace,
-            fontSize = 11.sp,
-            lineHeight = 14.sp,
-            softWrap = false,
-        )
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()
+            .background(Color(0xFF171A1B), MaterialTheme.shapes.small)
+            .onSizeChanged { size ->
+                val columns = ((size.width - horizontalPaddingPx).coerceAtLeast(charWidthPx) / charWidthPx).coerceIn(20, 160)
+                vm.resizeToViewport(columns)
+            }) {
+            Text(
+                text = state.output.ifEmpty { if (state.running) "Connecting to terminal..." else "Terminal closed" },
+                modifier = Modifier.fillMaxSize().verticalScroll(scroll).horizontalScroll(horizontalScroll).padding(8.dp),
+                color = Color(0xFFF0F2F2),
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                softWrap = false,
+            )
+        }
         PocketDevSectionLabel("Input")
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(
@@ -103,16 +116,6 @@ fun PtyTerminalScreen(
             TextButton(enabled = state.running, onClick = { vm.send("\u001b[C") }) { Text("→") }
             TextButton(enabled = state.running, onClick = { vm.send("\t") }) { Text("Tab") }
             TextButton(enabled = state.running, onClick = { vm.send("\u001b") }) { Text("Esc") }
-        }
-        TextButton(onClick = { showSizeControls = !showSizeControls }) { Text(if (showSizeControls) "Hide terminal size" else "${state.columns} × ${state.rows} · resize") }
-        if (showSizeControls) {
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(enabled = state.running && state.columns > 40,
-                onClick = { vm.resize(state.columns - 10, state.rows) }) { Text("− cols") }
-            Text("${state.columns} × ${state.rows}", modifier = Modifier.padding(top = 12.dp))
-            TextButton(enabled = state.running && state.columns < 160,
-                onClick = { vm.resize(state.columns + 10, state.rows) }) { Text("+ cols") }
-        }
         }
         Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(0.dp)) {
             TextButton(enabled = state.running, onClick = { vm.send("\n") }) { Text("Enter") }
