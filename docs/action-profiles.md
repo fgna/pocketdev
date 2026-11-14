@@ -8,8 +8,8 @@ Choose Android / Gradle, Docker Compose, General project, or one of your saved
 profiles. Selecting a different profile replaces the action list in the editor;
 save the project to apply it.
 
-The built-in Android / Gradle profile defaults to `cd android && ./gradlew test`
-for Test and `cd android && ./gradlew assembleDebug` for Build. Both
+The built-in Android / Gradle profile defaults to `(cd android && ./gradlew test)`
+for Test and `(cd android && ./gradlew assembleDebug)` for Build. Both
 commands can be edited independently for each repository. For projects with
 `gradlew` in the repository root, use `./gradlew test` and
 `./gradlew assembleDebug` instead. Existing saved commands are retained.
