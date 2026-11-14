@@ -548,9 +548,21 @@ private fun PocketDevHome(
                             }
                             }
 
-                            when {
-                                artifact.error != null -> Text("APK: ${artifact.error}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                                artifact.localPath != null -> Text("APK: ${File(artifact.localPath).name}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            artifact.localPath?.let { localPath ->
+                                Text(
+                                    "APK: ${artifact.remotePath ?: File(localPath).name}\nSHA-256: ${artifact.sha256 ?: "unknown"}" +
+                                        (artifact.sizeBytes?.let { "\nSize: $it bytes" } ?: ""),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            artifact.error?.let { message ->
+                                Text(
+                                    message,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (artifact.verified || artifact.localPath != null) MaterialTheme.colorScheme.onSurfaceVariant
+                                            else MaterialTheme.colorScheme.error,
+                                )
                             }
                         }
                     }

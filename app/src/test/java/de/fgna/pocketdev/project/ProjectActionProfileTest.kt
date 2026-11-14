@@ -100,7 +100,7 @@ class ProjectActionProfileTest {
         val profile = ActionProfileTemplates.android.copy(id = "my-android", name = "My Android")
         val configured = project(profile.id).copy(testCommand = "ignored legacy")
         assertTrue(ProjectCommandBuilder.actionProfile(configured, listOf(profile)).supportsApk)
-        assertEquals("./gradlew test", ProjectCommandBuilder.command(configured, "test", listOf(profile)))
+        assertEquals("(cd android && ./gradlew test)", ProjectCommandBuilder.command(configured, "test", listOf(profile)))
     }
 
     @Test fun unchangedProjectFollowsSharedOrderButExplicitReorderingStaysLocal() {
