@@ -133,24 +133,11 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
         } else if (showFiles) {
             FileTransferScreen(onBack = { showFiles = false })
         } else {
-            PocketDevApp(vm)
-
-            TextButton(
-                onClick = { showFiles = true },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .statusBarsPadding()
-                    .padding(end = 166.dp, top = 9.dp),
-            ) {
-                Text("Files")
-            }
-
-            if (!command.running && state.profile != null && state.project != null && state.hasStoredSecret) {
-                TextButton(
-                    onClick = { showTerminal = true },
-                    modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 16.dp, bottom = 104.dp),
-                ) { Text("Terminal · PTY") }
-            }
+            PocketDevApp(
+                vm = vm,
+                onFiles = { showFiles = true },
+                onTerminal = { showTerminal = true },
+            )
 
             if (command.running) {
                 Row(

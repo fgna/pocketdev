@@ -35,6 +35,7 @@ class PtyTerminalViewModel(application: Application) : AndroidViewModel(applicat
     private val _state = MutableStateFlow(PtyTerminalState())
     val state = _state.asStateFlow()
     private var identity: String? = null
+    @Volatile private var viewportColumns = 80
 
     fun start(profile: SshProfile, directory: String) {
         val id = "${profile.host}:${profile.port}:${profile.username}:$directory"
@@ -43,19 +44,19 @@ class PtyTerminalViewModel(application: Application) : AndroidViewModel(applicat
         // Closing an SSH socket may block; never perform it from a Compose callback.
         cleanupScope.launch { previous.close() }
         session = PtyTerminalSession()
-        screen = TerminalScreen()
+        screen = TerminalScreen(viewportColumns, 24)
         val current = session
         val currentScreen = screen
         val token = ++generation
         identity = id
-        _state.value = PtyTerminalState(started = true, running = true)
+        _state.value = PtyTerminalState(started = true, running = true, columns = viewportColumns)
         viewModelScope.launch {
             try {
                 val secret = withContext(Dispatchers.IO) {
                     SshProfileRepository(getApplication()).loadSecret()
                 } ?: error("No SSH credentials stored")
                 if (token != generation) return@launch
-                current.run(profile, secret, directory) { chunk ->
+                current.run(profile, secret, directory, columns = { viewportColumns }) { chunk ->
                     val rendered = currentScreen.accept(chunk)
                     if (token == generation) _state.update { it.copy(output = rendered) }
                 }
@@ -86,6 +87,14 @@ class PtyTerminalViewModel(application: Application) : AndroidViewModel(applicat
 
     fun interrupt() = send("\u0003")
 
+    /** Called by the measured viewport, including after rotation. Avoid redundant SSH resizes. */
+    fun resizeToViewport(columns: Int) {
+        val width = columns.coerceIn(20, 160)
+        if (viewportColumns == width) return
+        viewportColumns = width
+        resize(width, _state.value.rows)
+    }
+
     fun resize(columns: Int, rows: Int) {
         val current = session
         val currentScreen = screen
@@ -93,8 +102,10 @@ class PtyTerminalViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             val resized = withContext(Dispatchers.IO) { current.resize(columns, rows) }
             if (token != generation) return@launch
-            if (resized) _state.update { it.copy(columns = columns, rows = rows, output = currentScreen.resize(columns, rows)) }
-            else _state.update { it.copy(error = "Terminal resize failed.") }
+            // The SSH channel may still be connecting; allocatePTY reads viewportColumns on start.
+            if (resized || _state.value.running) {
+                _state.update { it.copy(columns = columns, rows = rows, output = currentScreen.resize(columns, rows)) }
+            }
         }
     }
 
