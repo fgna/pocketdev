@@ -53,6 +53,7 @@ data class ProjectEditorState(
     val testCommand: String = "(cd android && ./gradlew test)",
     val buildCommand: String = "(cd android && ./gradlew assembleDebug)",
     val githubRepository: String = "",
+    val apkPath: String = "",
     val actionProfileId: String = "android-gradle",
     val actions: List<ActionDefinition> = ActionProfileTemplates.android.actions,
     val error: String? = null,
@@ -544,6 +545,8 @@ class PocketDevViewModel(
                             downloading = false,
                             remotePath = downloaded.remotePath,
                             localPath = downloaded.localFile.absolutePath,
+                            sizeBytes = downloaded.sizeBytes,
+                            sha256 = downloaded.sha256,
                         ),
                     )
                 }
