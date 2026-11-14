@@ -18,6 +18,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +31,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -38,6 +43,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -81,7 +88,11 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
+fun PocketDevApp(
+    vm: PocketDevViewModel = viewModel(),
+    onFiles: (() -> Unit)? = null,
+    onTerminal: (() -> Unit)? = null,
+) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
     var issueDraft by remember { mutableStateOf<DiagnosticIssueDraft?>(null) }
@@ -119,6 +130,8 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                 state = state,
                 onConfigure = vm::openEditor,
                 onProjects = { projectSwitcherOpen = true },
+                onFiles = onFiles,
+                onTerminal = onTerminal,
                 onSelectProject = { tabId ->
                     vm.selectTab(tabId)
                     issueDraft = null
@@ -283,6 +296,8 @@ private fun PocketDevHome(
     state: PocketDevState,
     onConfigure: () -> Unit,
     onProjects: () -> Unit,
+    onFiles: (() -> Unit)?,
+    onTerminal: (() -> Unit)?,
     onSelectProject: (String) -> Unit,
     onOpenTab: (String) -> Unit,
     onCloseTab: (String) -> Unit,
@@ -308,6 +323,7 @@ private fun PocketDevHome(
     val busy = execution.running || artifact.downloading
     var renamingTabId by remember { mutableStateOf<String?>(null) }
     var tabName by remember { mutableStateOf("") }
+    var navigationMenuOpen by remember { mutableStateOf(false) }
 
     if (renamingTabId != null) {
         AlertDialog(
@@ -363,8 +379,41 @@ private fun PocketDevHome(
                             PocketDevContextStrip(headerLabel, state = headerState)
                         }
                         Spacer(modifier = Modifier.weight(1f))
-                        TextButton(onClick = onConfigure) { Text("Server") }
-                        TextButton(onClick = onProjects) { Text("Projects") }
+                        Box {
+                            IconButton(onClick = { navigationMenuOpen = true }) {
+                                Icon(
+                                    imageVector = Icons.Filled.Menu,
+                                    contentDescription = "Open navigation menu",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = navigationMenuOpen,
+                                onDismissRequest = { navigationMenuOpen = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Server") },
+                                    onClick = { navigationMenuOpen = false; onConfigure() },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Projects") },
+                                    onClick = { navigationMenuOpen = false; onProjects() },
+                                )
+                                if (onFiles != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Files") },
+                                        onClick = { navigationMenuOpen = false; onFiles() },
+                                    )
+                                }
+                                if (onTerminal != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Interactive SSH terminal") },
+                                        enabled = !execution.running && profile != null && project != null && state.hasStoredSecret,
+                                        onClick = { navigationMenuOpen = false; onTerminal() },
+                                    )
+                                }
+                            }
+                        }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
