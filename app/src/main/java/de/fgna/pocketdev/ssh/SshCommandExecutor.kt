@@ -117,7 +117,7 @@ class SshjCommandExecutor : SshCommandExecutor {
             send(CommandEvent.Connected)
 
             session = withContext(Dispatchers.IO) { connected.startSession() }
-            val effectiveCommand = if (interactiveSudo) interactiveSudoCommand(command) else command
+            val effectiveCommand = RemoteShellCommand.build(command, profile.loginShell, interactiveSudo)
             remote = withContext(Dispatchers.IO) { session!!.exec(effectiveCommand) }
             writer = remote!!.outputStream.bufferedWriter()
             cancelledCommands.remove(controlKey)
@@ -193,8 +193,6 @@ class SshjCommandExecutor : SshCommandExecutor {
         completion?.let { trySend(it) }
     }
 
-    private fun interactiveSudoCommand(command: String): String =
-        interactiveSudoPrelude() + "\n" + command
     private fun createAndroidCompatibleClient(): SSHClient {
         val config = DefaultSecurityProviderConfig().apply {
             setKeyAlgorithms(listOf(KeyAlgorithms.RSASHA512(), KeyAlgorithms.RSASHA256()))
