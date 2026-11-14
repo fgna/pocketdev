@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import de.fgna.pocketdev.project.ActionDefinition
 import de.fgna.pocketdev.project.ActionProfile
 import de.fgna.pocketdev.project.ActionProfileResolver
+import de.fgna.pocketdev.project.ApkArtifactPath
 import de.fgna.pocketdev.project.ActionProfileTemplates
 import java.util.UUID
 
@@ -51,6 +52,7 @@ internal fun ProjectDialog(
         state.actions.forEach(ActionProfileResolver::validate)
         require(state.actions.map { it.id }.distinct().size == state.actions.size)
     }.isSuccess
+    val apkPathValid = runCatching { ApkArtifactPath.validateOptional(state.apkPath) }.isSuccess
     val repositoryValid = state.githubRepository.isBlank() || Regex("^[^/\\s]+/[^/\\s]+$").matches(state.githubRepository.trim())
 
     AlertDialog(
@@ -73,6 +75,15 @@ internal fun ProjectDialog(
                     supportingText = { Text("owner/name; leave empty for an existing directory") },
                     isError = !repositoryValid, singleLine = true,
                 )
+                if (selectedProfile?.supportsApk == true) {
+                    OutlinedTextField(
+                        value = state.apkPath,
+                        onValueChange = { value -> onChange { it.copy(apkPath = value) } },
+                        label = { Text("APK path relative to project (optional)") },
+                        supportingText = { Text("Example: android/app/build/outputs/apk/debug/app-debug.apk. Leave blank only when the project produces one APK.") },
+                        isError = !apkPathValid,
+                    )
+                }
                 HorizontalDivider()
                 Text("Action profile", style = MaterialTheme.typography.titleSmall)
                 profiles.forEach { profile ->
@@ -118,7 +129,7 @@ internal fun ProjectDialog(
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
-        confirmButton = { TextButton(onClick = onSave, enabled = state.name.isNotBlank() && remotePathValid && repositoryValid && selectedProfile != null && actionsValid) { Text("Save project") } },
+        confirmButton = { TextButton(onClick = onSave, enabled = state.name.isNotBlank() && remotePathValid && repositoryValid && apkPathValid && selectedProfile != null && actionsValid) { Text("Save project") } },
         dismissButton = {
             Row {
                 if (editingExisting) TextButton(onClick = { confirmDelete = true }) { Text("Delete", color = MaterialTheme.colorScheme.error) }

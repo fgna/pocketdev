@@ -53,6 +53,7 @@ data class ProjectEditorState(
     val testCommand: String = "(cd android && ./gradlew test)",
     val buildCommand: String = "(cd android && ./gradlew assembleDebug)",
     val githubRepository: String = "",
+    val apkPath: String = "",
     val actionProfileId: String = "android-gradle",
     val actions: List<ActionDefinition> = ActionProfileTemplates.android.actions,
     val error: String? = null,
@@ -205,6 +206,7 @@ class PocketDevViewModel(
                     testCommand = current.testCommand,
                     buildCommand = current.buildCommand,
                     githubRepository = current.githubRepository,
+                    apkPath = current.apkPath,
                     actionProfileId = current.actionProfileId,
                     actions = runCatching { ProjectCommandBuilder.configuredActions(current, it.actionProfiles) }.getOrDefault(emptyList()),
                 ),
@@ -337,7 +339,8 @@ class PocketDevViewModel(
             id = id, name = editor.name.trim(), remotePath = editor.remotePath.trim(),
             testCommand = if (android) editor.actions.firstOrNull { it.id == "test" }?.command ?: editor.testCommand else editor.testCommand,
             buildCommand = if (android) editor.actions.firstOrNull { it.id == "build" }?.command ?: editor.buildCommand else editor.buildCommand,
-            githubRepository = editor.githubRepository.trim(), actionProfileId = editor.actionProfileId,
+            githubRepository = editor.githubRepository.trim(), apkPath = editor.apkPath.trim(),
+            actionProfileId = editor.actionProfileId,
             commandFavorites = _state.value.projects.firstOrNull { it.id == id }?.commandFavorites.orEmpty(),
         )
         return ProjectCommandBuilder.withEditedActions(base, editor.actions, _state.value.actionProfiles)
@@ -544,6 +547,8 @@ class PocketDevViewModel(
                             downloading = false,
                             remotePath = downloaded.remotePath,
                             localPath = downloaded.localFile.absolutePath,
+                            sizeBytes = downloaded.sizeBytes,
+                            sha256 = downloaded.sha256,
                         ),
                     )
                 }

@@ -11,6 +11,7 @@ data class ProjectConfig(
     val customActions: List<ActionDefinition> = emptyList(),
     val actionOrder: List<String> = emptyList(),
     val commandFavorites: List<String> = emptyList(),
+    val apkPath: String = "",
 ) {
     fun withCommandFavorite(command: String, saved: Boolean): ProjectConfig {
         if (command.isBlank()) return this
@@ -75,6 +76,7 @@ object ProjectCommandBuilder {
         require(project.githubRepository.isBlank() || Regex("^[^/\\s]+/[^/\\s]+$").matches(project.githubRepository)) {
             "GitHub repository must use owner/name format"
         }
+        ApkArtifactPath.validateOptional(project.apkPath)
         configuredActions(project, profiles)
     }
 

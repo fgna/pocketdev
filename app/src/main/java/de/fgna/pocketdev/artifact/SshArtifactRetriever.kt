@@ -1,6 +1,7 @@
 package de.fgna.pocketdev.artifact
 
 import com.hierynomus.sshj.key.KeyAlgorithms
+import de.fgna.pocketdev.project.ApkArtifactPath
 import de.fgna.pocketdev.project.ProjectCommandBuilder
 import de.fgna.pocketdev.project.ProjectConfig
 import de.fgna.pocketdev.ssh.AuthMode
@@ -47,6 +48,9 @@ class SshArtifactRetriever : ArtifactRetriever {
                 try {
                     return@withContext downloadLatestApkOnce(profile, secret, project, destinationDir)
                 } catch (error: Exception) {
+                    // An ambiguous/unsafe artifact selection is a configuration
+                    // decision, not an SSH transient; retrying cannot fix it.
+                    if (error is IllegalArgumentException) throw error
                     lastFailure = error
                     cleanupDestination(destinationDir)
                     if (attempt < MAX_DOWNLOAD_ATTEMPTS - 1) {
@@ -75,7 +79,7 @@ class SshArtifactRetriever : ArtifactRetriever {
         try {
             authenticate(ssh, profile, secret)
             val relativePath = discoverLatestApk(ssh, project)
-            val remotePath = project.remotePath.trimEnd('/') + "/" + relativePath.removePrefix("./")
+            val remotePath = relativePath
             val remoteSha256 = remoteSha256(ssh, remotePath)
 
             cleanupDestination(destinationDir)
@@ -154,18 +158,47 @@ class SshArtifactRetriever : ArtifactRetriever {
     }
 
     private fun discoverLatestApk(ssh: SSHClient, project: ProjectConfig): String {
-        val quotedPath = ProjectCommandBuilder.shellQuote(project.remotePath)
-        val command = "cd $quotedPath && find . -type f -name '*.apk' -path '*/build/outputs/apk/*' -printf '%T@ %p\\n' | sort -nr | head -n 1 | cut -d' ' -f2-"
-        ssh.startSession().use { session ->
+        ApkArtifactPath.validateOptional(project.apkPath)
+        val root = ProjectCommandBuilder.shellQuote(project.remotePath)
+        // The caller only downloads a relative path. The host resolves the
+        // actual path and rejects symlinks escaping the configured project.
+        val configured = project.apkPath
+        val command = if (configured.isNotBlank()) {
+            "cd $root && printf '%s\\n' " + ProjectCommandBuilder.shellQuote(configured)
+        } else {
+            "cd $root && find . -type f -name '*.apk' -path '*/build/outputs/apk/*' -print | sort"
+        }
+        val candidates = ssh.startSession().use { session ->
             val remote = session.exec(command)
-            val stdout = remote.inputStream.bufferedReader().readText().trim()
+            val stdout = remote.inputStream.bufferedReader().readText()
             val stderr = remote.errorStream.bufferedReader().readText().trim()
             remote.join()
-            val exit = remote.exitStatus ?: -1
-            require(exit == 0) { stderr.ifBlank { "APK discovery failed with exit $exit." } }
-            require(stdout.isNotBlank()) { "No APK found under build/outputs/apk in ${project.remotePath}. Run Build first." }
-            return stdout.lineSequence().first().trim()
+            require(remote.exitStatus == 0) { stderr.ifBlank { "APK discovery failed." } }
+            stdout.lineSequence().filter { it.isNotBlank() }.toList()
         }
+        val chosen = ApkArtifactPath.select(configured, candidates)
+        // realpath resolves symlinked parents as well. Check confinement on
+        // the host and return the true, readable, nonempty regular file.
+        val relative = ProjectCommandBuilder.shellQuote(chosen)
+        val verify = """
+            cd $root && base=$(pwd -P) && file=$(realpath -e -- $relative) &&
+            case "${'$'}file" in "${'$'}base"/*) ;; *) exit 42 ;; esac &&
+            test -f "${'$'}file" && test -s "${'$'}file" && test ! -L $relative &&
+            printf '%s\n' "${'$'}file"
+        """.trimIndent().replace("\n", " ")
+        val remotePath = ssh.startSession().use { session ->
+            val remote = session.exec(verify)
+            val output = remote.inputStream.bufferedReader().readText().trim()
+            val errors = remote.errorStream.bufferedReader().readText().trim()
+            remote.join()
+            require(remote.exitStatus == 0 && output.startsWith("/")) {
+                errors.ifBlank { "APK is missing, empty, a symlink, or outside the configured project." }
+            }
+            output
+        }
+        // Return the verified absolute path. downloadLatestApkOnce must not
+        // concatenate it with the project root a second time.
+        return remotePath
     }
 
     private fun remoteSha256(ssh: SSHClient, remotePath: String): String {
