@@ -107,6 +107,19 @@ class ProjectConfigCodecTest {
     }
 
     @Test
+    fun apkSourceRoundTripsPerProjectAndLegacyTenFieldRowsRemainReadable() {
+        val old = ProjectConfig(
+            id = "old", name = "Legacy", remotePath = "/srv/legacy",
+            testCommand = "test", buildCommand = "build",
+        )
+        val selected = old.copy(id = "new", apkPath = "android/app/build/outputs/apk/debug/app-debug.apk")
+        val saved = ProjectConfigCodec.encode(listOf(old, selected))
+        assertEquals(listOf(old, selected), ProjectConfigCodec.decode(saved))
+        val legacyTenFields = ProjectConfigCodec.encode(listOf(old)).split('|').take(10).joinToString("|")
+        assertEquals(listOf(old), ProjectConfigCodec.decode(legacyTenFields))
+    }
+
+    @Test
     fun emptyCollectionRoundTrips() {
         assertEquals(emptyList<ProjectConfig>(), ProjectConfigCodec.decode(ProjectConfigCodec.encode(emptyList())))
     }
