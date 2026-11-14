@@ -93,6 +93,23 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     val anyArtifactDownloading = state.sessions.values.any { it.artifact.downloading }
     var showFiles by remember { mutableStateOf(false) }
     var showTerminal by rememberSaveable { mutableStateOf(false) }
+    var navigationRequest by remember { mutableStateOf<String?>(null) }
+
+    fun navigate(destination: String) {
+        when (destination) {
+            "Workspace" -> { showFiles = false; showTerminal = false }
+            "Server", "Projects" -> {
+                showFiles = false
+                showTerminal = false
+                navigationRequest = destination
+            }
+            "Files" -> { showTerminal = false; showFiles = true }
+            "Interactive SSH terminal" -> if (!command.running && state.profile != null && state.project != null && state.hasStoredSecret) {
+                showFiles = false
+                showTerminal = true
+            }
+        }
+    }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -127,16 +144,21 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
                     tabId = activeTabId,
                     profile = state.profile!!,
                     projectPath = state.currentWorkingDirectory ?: state.project!!.remotePath,
-                    onBack = { showTerminal = false },
+                    onNavigate = ::navigate,
                 )
             }
         } else if (showFiles) {
-            FileTransferScreen(onBack = { showFiles = false })
+            FileTransferScreen(
+                onNavigate = ::navigate,
+                terminalEnabled = !command.running && state.profile != null && state.project != null && state.hasStoredSecret,
+            )
         } else {
             PocketDevApp(
                 vm = vm,
-                onFiles = { showFiles = true },
-                onTerminal = { showTerminal = true },
+                onFiles = { navigate("Files") },
+                onTerminal = { navigate("Interactive SSH terminal") },
+                navigationRequest = navigationRequest,
+                onNavigationHandled = { navigationRequest = null },
             )
 
             if (command.running) {
