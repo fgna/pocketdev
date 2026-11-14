@@ -121,7 +121,6 @@ fun FileTransferScreen(
                             Text("Files", style = MaterialTheme.typography.titleLarge)
                             Text("Project-independent transfer", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        PocketDevNavigationMenu(onNavigate = onNavigate, terminalEnabled = terminalEnabled)
                         TextButton(
                             onClick = {
                                 vm.refreshPhoneFiles()
@@ -129,6 +128,7 @@ fun FileTransferScreen(
                             },
                             enabled = !state.busy,
                         ) { Text("Refresh") }
+                        PocketDevNavigationMenu(onNavigate = onNavigate, terminalEnabled = terminalEnabled)
                     }
                     HorizontalDivider()
                 }
