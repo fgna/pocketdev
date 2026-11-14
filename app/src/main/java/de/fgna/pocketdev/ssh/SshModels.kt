@@ -6,6 +6,7 @@ data class SshProfile(
     val username: String,
     val hostKeySha256: String = "",
     val authMode: AuthMode = AuthMode.PASSWORD,
+    val loginShell: Boolean = true,
 )
 
 enum class AuthMode {
@@ -66,7 +67,12 @@ object CommandStateReducer {
         is CommandEvent.SudoPasswordSubmitted -> if (event.generation == current.sudoPromptGeneration) current.copy(running = true, awaitingSudoPassword = false) else current
         is CommandEvent.HostKeyTrustRequired -> current.copy(running = false, awaitingSudoPassword = false)
         is CommandEvent.Output -> appendOutput(current, event)
-        is CommandEvent.Completed -> current.copy(running = false, exitCode = event.exitCode, awaitingSudoPassword = false)
+        is CommandEvent.Completed -> current.copy(
+            running = false,
+            exitCode = event.exitCode,
+            awaitingSudoPassword = false,
+            stderr = if (event.exitCode == 127) current.stderr + "\nPocketDev hint: command not found. Check SSH profile > Login shell and the server PATH (~/.profile, ~/.local/bin).\n" else current.stderr,
+        )
         is CommandEvent.ConnectionFailed -> current.copy(running = false, connectionError = event.message, awaitingSudoPassword = false)
     }
     private const val MAX_VISIBLE_OUTPUT = 128 * 1024
