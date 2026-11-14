@@ -25,6 +25,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import de.fgna.pocketdev.ui.PocketDevNavigationMenu
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -40,7 +41,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
 fun FileTransferScreen(
-    onBack: () -> Unit,
+    onNavigate: (String) -> Unit,
+    terminalEnabled: Boolean = true,
     vm: FileTransferViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsState()
@@ -115,7 +117,6 @@ fun FileTransferScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        TextButton(onClick = onBack) { Text("Back") }
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Files", style = MaterialTheme.typography.titleLarge)
                             Text("Project-independent transfer", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -127,6 +128,7 @@ fun FileTransferScreen(
                             },
                             enabled = !state.busy,
                         ) { Text("Refresh") }
+                        PocketDevNavigationMenu(onNavigate = onNavigate, terminalEnabled = terminalEnabled)
                     }
                     HorizontalDivider()
                 }
