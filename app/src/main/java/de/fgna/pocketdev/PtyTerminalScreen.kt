@@ -1,6 +1,7 @@
 package de.fgna.pocketdev
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -63,16 +65,17 @@ fun PtyTerminalScreen(
     LaunchedEffect(state.output) { scroll.animateScrollTo(scroll.maxValue) }
 
     Column(
-        modifier = Modifier.fillMaxSize().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp),
+        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).navigationBarsPadding(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Surface(color = MaterialTheme.colorScheme.surface) {
-            Row(modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Terminal · ${profile.host}", style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 TextButton(onClick = { vm.close(); onBack() }) { Text("Close") }
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         PocketDevHairlineSurface(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(10.dp)) {
                 PocketDevSectionLabel("Workspace")
@@ -82,7 +85,8 @@ fun PtyTerminalScreen(
         PocketDevSectionLabel("Live output")
         state.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
         Box(modifier = Modifier.weight(1f).fillMaxWidth()
-            .background(Color(0xFF171A1B), MaterialTheme.shapes.small)
+            .background(Color(0xFF171A1B), MaterialTheme.shapes.medium)
+            .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.medium)
             .onSizeChanged { size ->
                 val columns = ((size.width - horizontalPaddingPx).coerceAtLeast(charWidthPx) / charWidthPx).coerceIn(20, 160)
                 vm.resizeToViewport(columns)
@@ -109,18 +113,19 @@ fun PtyTerminalScreen(
         )
         Button(enabled = state.running, onClick = { vm.send(input + "\n") { input = "" } }) { Text("Send") }
         }
-        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(0.dp)) {
-            TextButton(enabled = state.running, onClick = { vm.send("\u001b[A") }) { Text("↑") }
-            TextButton(enabled = state.running, onClick = { vm.send("\u001b[B") }) { Text("↓") }
-            TextButton(enabled = state.running, onClick = { vm.send("\u001b[D") }) { Text("←") }
-            TextButton(enabled = state.running, onClick = { vm.send("\u001b[C") }) { Text("→") }
-            TextButton(enabled = state.running, onClick = { vm.send("\t") }) { Text("Tab") }
-            TextButton(enabled = state.running, onClick = { vm.send("\u001b") }) { Text("Esc") }
+        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedButton(enabled = state.running, onClick = { vm.send("\u001b[A") }) { Text("↑") }
+            OutlinedButton(enabled = state.running, onClick = { vm.send("\u001b[B") }) { Text("↓") }
+            OutlinedButton(enabled = state.running, onClick = { vm.send("\u001b[D") }) { Text("←") }
+            OutlinedButton(enabled = state.running, onClick = { vm.send("\u001b[C") }) { Text("→") }
+            OutlinedButton(enabled = state.running, onClick = { vm.send("\t") }) { Text("Tab") }
+            OutlinedButton(enabled = state.running, onClick = { vm.send("\u001b") }) { Text("Esc") }
         }
-        Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(0.dp)) {
-            TextButton(enabled = state.running, onClick = { vm.send("\n") }) { Text("Enter") }
-            TextButton(enabled = state.running, onClick = vm::interrupt) { Text("Ctrl-C") }
-            TextButton(enabled = state.running, onClick = { vm.send("\u0004") }) { Text("Ctrl-D") }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedButton(enabled = state.running, onClick = { vm.send("\n") }) { Text("Enter") }
+            OutlinedButton(enabled = state.running, onClick = vm::interrupt) { Text("Ctrl-C") }
+            OutlinedButton(enabled = state.running, onClick = { vm.send("\u0004") }) { Text("Ctrl-D") }
+        }
         }
     }
 }
