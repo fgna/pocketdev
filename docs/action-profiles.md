@@ -8,7 +8,7 @@ Choose Android / Gradle, Docker Compose, General project, or one of your saved
 profiles. Selecting a different profile replaces the action list in the editor;
 save the project to apply it.
 
-For each action, use **Edit** to change its button label, multiline shell command,
+The built-in Android / Gradle profile defaults to `cd android && ./gradlew test`\nfor Test and `cd android && ./gradlew assembleDebug` for Build. Both\ncommands can be edited independently for each repository. For projects with\n`gradlew` in the repository root, use `./gradlew test` and\n`./gradlew assembleDebug` instead. Existing saved commands are retained.\n\nFor each action, use **Edit** to change its button label, multiline shell command,
 and confirmation setting. Use the checkbox to hide/show the button and **Up/Down**
 to reorder it. Additional actions can be removed. Inherited actions can be disabled.
 New actions request confirmation by default. Built-in Docker Stop also requests
