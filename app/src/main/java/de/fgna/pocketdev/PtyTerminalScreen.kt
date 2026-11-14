@@ -41,6 +41,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.fgna.pocketdev.ssh.SshProfile
+import de.fgna.pocketdev.ui.PocketDevNavigationMenu
 import de.fgna.pocketdev.ui.PocketDevSectionLabel
 import de.fgna.pocketdev.ui.PocketDevHairlineSurface
 
@@ -50,7 +51,7 @@ fun PtyTerminalScreen(
     tabId: String,
     profile: SshProfile,
     projectPath: String,
-    onBack: () -> Unit,
+    onNavigate: (String) -> Unit,
     vm: PtyTerminalViewModel = viewModel(key = "pty-$tabId"),
 ) {
     val state by vm.state.collectAsState()
@@ -71,7 +72,10 @@ fun PtyTerminalScreen(
         Surface(color = MaterialTheme.colorScheme.surface) {
             Row(modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Terminal · ${profile.host}", style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                TextButton(onClick = { vm.close(); onBack() }) { Text("Close") }
+                PocketDevNavigationMenu(onNavigate = { destination ->
+                    vm.close()
+                    onNavigate(destination)
+                })
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
