@@ -48,6 +48,9 @@ class SshArtifactRetriever : ArtifactRetriever {
                 try {
                     return@withContext downloadLatestApkOnce(profile, secret, project, destinationDir)
                 } catch (error: Exception) {
+                    // An ambiguous/unsafe artifact selection is a configuration
+                    // decision, not an SSH transient; retrying cannot fix it.
+                    if (error is IllegalArgumentException) throw error
                     lastFailure = error
                     cleanupDestination(destinationDir)
                     if (attempt < MAX_DOWNLOAD_ATTEMPTS - 1) {
