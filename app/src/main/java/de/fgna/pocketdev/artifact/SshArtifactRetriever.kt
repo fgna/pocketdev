@@ -177,10 +177,12 @@ class SshArtifactRetriever : ArtifactRetriever {
         // realpath resolves symlinked parents as well. Check confinement on
         // the host and return the true, readable, nonempty regular file.
         val relative = ProjectCommandBuilder.shellQuote(chosen)
-        val verify = "cd $root && base=\\$(pwd -P) && file=\\$(realpath -e -- $relative) && " +
-            "case \\"\\$file\\" in \\"\\$base\\"/*) ;; *) exit 42 ;; esac && " +
-            "test -f \\"\\$file\\" && test -s \\"\\$file\\" && " +
-            "test ! -L $relative && printf '%s\\n' \\"\\$file\\""
+        val verify = """
+            cd $root && base=$(pwd -P) && file=$(realpath -e -- $relative) &&
+            case "${'$'}file" in "${'$'}base"/*) ;; *) exit 42 ;; esac &&
+            test -f "${'$'}file" && test -s "${'$'}file" && test ! -L $relative &&
+            printf '%s\n' "${'$'}file"
+        """.trimIndent().replace("\n", " ")
         val remotePath = ssh.startSession().use { session ->
             val remote = session.exec(verify)
             val output = remote.inputStream.bufferedReader().readText().trim()
