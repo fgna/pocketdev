@@ -50,8 +50,8 @@ data class ProfileEditorState(
 data class ProjectEditorState(
     val name: String = "",
     val remotePath: String = "",
-    val testCommand: String = "./gradlew test",
-    val buildCommand: String = "./gradlew assembleDebug",
+    val testCommand: String = "(cd android && ./gradlew test)",
+    val buildCommand: String = "(cd android && ./gradlew assembleDebug)",
     val githubRepository: String = "",
     val actionProfileId: String = "android-gradle",
     val actions: List<ActionDefinition> = ActionProfileTemplates.android.actions,
@@ -259,8 +259,8 @@ class PocketDevViewModel(
                 if (failure == null && exitCode == 0 && path != null && path.startsWith("/")) {
                     val project = ProjectConfig(
                         name = repo.substringAfter('/'), remotePath = path,
-                        githubRepository = repo, testCommand = "./gradlew test",
-                        buildCommand = "./gradlew assembleDebug",
+                        githubRepository = repo, testCommand = "(cd android && ./gradlew test)",
+                        buildCommand = "(cd android && ./gradlew assembleDebug)",
                     )
                     val collection = projectRepository.upsert(project, makeActive = true)
                     val tabs = _state.value.tabSelection.add(collection.activeProject!!.id, "tab-${UUID.randomUUID()}")
