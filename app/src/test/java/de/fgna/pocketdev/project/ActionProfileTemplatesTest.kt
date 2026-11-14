@@ -7,8 +7,8 @@ import org.junit.Test
 class ActionProfileTemplatesTest {
     @Test fun androidGradleDefaultsRunInAndroidDirectory() {
         val actions = ActionProfileTemplates.android.actions
-        assertEquals("cd android && ./gradlew test", actions.first { it.id == "test" }.command)
-        assertEquals("cd android && ./gradlew assembleDebug", actions.first { it.id == "build" }.command)
+        assertEquals("(cd android && ./gradlew test)", actions.first { it.id == "test" }.command)
+        assertEquals("(cd android && ./gradlew assembleDebug)", actions.first { it.id == "build" }.command)
     }
 
     @Test fun dockerCommandsAreAvailable() {
