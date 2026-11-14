@@ -26,8 +26,8 @@ object ActionProfileTemplates {
         supportsApk = true,
         actions = listOf(
             ActionDefinition("git-status", "Git status", "git status --short --branch"),
-            ActionDefinition("test", "Test", "cd android && ./gradlew test"),
-            ActionDefinition("build", "Build", "cd android && ./gradlew assembleDebug"),
+            ActionDefinition("test", "Test", "(cd android && ./gradlew test)"),
+            ActionDefinition("build", "Build", "(cd android && ./gradlew assembleDebug)"),
         ),
     )
 
