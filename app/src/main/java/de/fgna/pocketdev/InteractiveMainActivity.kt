@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +29,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.runtime.Composable
@@ -93,6 +96,7 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     val anyArtifactDownloading = state.sessions.values.any { it.artifact.downloading }
     var showFiles by remember { mutableStateOf(false) }
     var showTerminal by rememberSaveable { mutableStateOf(false) }
+    var showToolsMenu by remember { mutableStateOf(false) }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -135,21 +139,23 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
         } else {
             PocketDevApp(vm)
 
-            TextButton(
-                onClick = { showFiles = true },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .statusBarsPadding()
-                    .padding(end = 166.dp, top = 9.dp),
-            ) {
-                Text("Files")
-            }
-
-            if (!command.running && state.profile != null && state.project != null && state.hasStoredSecret) {
-                TextButton(
-                    onClick = { showTerminal = true },
-                    modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 16.dp, bottom = 104.dp),
-                ) { Text("Terminal · PTY") }
+            // Less-frequent tools belong in the header overflow rather than floating over actions.
+            Box(modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 168.dp, top = 5.dp)) {
+                IconButton(onClick = { showToolsMenu = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "More tools")
+                }
+                DropdownMenu(expanded = showToolsMenu, onDismissRequest = { showToolsMenu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Files") },
+                        onClick = { showToolsMenu = false; showFiles = true },
+                    )
+                    if (!command.running && state.profile != null && state.project != null && state.hasStoredSecret) {
+                        DropdownMenuItem(
+                            text = { Text("Interactive SSH terminal") },
+                            onClick = { showToolsMenu = false; showTerminal = true },
+                        )
+                    }
+                }
             }
 
             if (command.running) {
