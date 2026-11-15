@@ -106,7 +106,21 @@ The user should be able to see what is being shared before leaving PocketDev for
 
 ## Repository workflow
 
-Use GitHub issues for concrete backlog work. Keep focused branches and PRs; merge only after the relevant local/device gate is satisfied.
+Read the shared instructions in
+[`fgna/project-tracker/AGENTS.md`](https://github.com/fgna/project-tracker/blob/main/AGENTS.md)
+and [the general project rules](https://github.com/fgna/project-tracker/blob/main/docs/general-project-rules.md)
+before development or issue closure. Keep these repository-specific SSH,
+security, APK and validation rules alongside the shared rules.
+
+Use GitHub issues for concrete backlog work. Keep focused branches and PRs.
+Required engineering gates must pass before merge; a physical/device-only
+owner signoff can follow merge when its exact checks, commit/PR evidence, and
+remaining risk are transferred to an existing open outcome or acceptance Issue
+in this repository. Close the implementation Issue only after that transfer,
+linking the acceptance register. If code, security, tests, or required reviews
+remain unresolved, keep the implementation Issue open. Do not create a new
+acceptance Issue for every PR or use an execution-failure label for routine
+owner signoff.
 
 Before claiming a build succeeded, use an actual build result. Do not infer CI/build success from code inspection.
 
