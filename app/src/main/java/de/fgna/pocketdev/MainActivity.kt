@@ -10,12 +10,15 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
+import java.io.FileInputStream
+import java.security.MessageDigest
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,6 +31,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -36,13 +43,19 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -51,9 +64,12 @@ import de.fgna.pocketdev.artifact.ApkInstaller
 import de.fgna.pocketdev.artifact.SshArtifactRetriever
 import de.fgna.pocketdev.diagnostics.DiagnosticDraftBuilder
 import de.fgna.pocketdev.diagnostics.DiagnosticIssueDraft
-import de.fgna.pocketdev.project.ProjectAction
+import de.fgna.pocketdev.project.ActionProfileTemplates
+import de.fgna.pocketdev.project.ActionDefinition
 import de.fgna.pocketdev.project.ProjectCommandBuilder
 import de.fgna.pocketdev.project.ProjectConfig
+import de.fgna.pocketdev.project.WorkspaceTabSelection
+import de.fgna.pocketdev.project.WorkspaceTabs
 import de.fgna.pocketdev.ssh.AuthMode
 import de.fgna.pocketdev.ui.PocketDevCompactMeta
 import de.fgna.pocketdev.ui.PocketDevContextStrip
@@ -62,6 +78,7 @@ import de.fgna.pocketdev.ui.PocketDevIndicatorState
 import de.fgna.pocketdev.ui.PocketDevSectionLabel
 import de.fgna.pocketdev.ui.PocketDevTheme
 import java.io.File
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -71,28 +88,40 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
+fun PocketDevApp(
+    vm: PocketDevViewModel = viewModel(),
+    onFiles: (() -> Unit)? = null,
+    onTerminal: (() -> Unit)? = null,
+) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
     var issueDraft by remember { mutableStateOf<DiagnosticIssueDraft?>(null) }
     var projectSwitcherOpen by remember { mutableStateOf(false) }
+    var pendingRunTabId by remember { mutableStateOf<String?>(null) }
 
     val nearbyPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        if (granted) vm.runCommand()
-        else Toast.makeText(context, "Nearby devices permission is required for SSH to local-network servers.", Toast.LENGTH_LONG).show()
+        val originalTab = pendingRunTabId
+        pendingRunTabId = null
+        if (granted && originalTab != null) vm.runCommand(originalTab)
+        else if (!granted) Toast.makeText(context, "Nearby devices permission is required for SSH to local-network servers.", Toast.LENGTH_LONG).show()
     }
 
     val runWithLanPermission = {
-        if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            context.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED
-        ) nearbyPermissionLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
-        else vm.runCommand()
+        val originalTab = state.activeTabId
+        if (originalTab != null) {
+            if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                context.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED
+            ) {
+                pendingRunTabId = originalTab
+                nearbyPermissionLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
+            } else vm.runCommand(originalTab)
+        }
     }
-    val runProjectAction: (ProjectAction) -> Unit = { action ->
-        if (vm.prepareProjectAction(action)) runWithLanPermission()
+    val runProjectAction: (String) -> Unit = { actionId ->
+        if (vm.prepareProjectAction(actionId)) runWithLanPermission()
     }
 
     PocketDevTheme {
@@ -101,15 +130,24 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                 state = state,
                 onConfigure = vm::openEditor,
                 onProjects = { projectSwitcherOpen = true },
-                onSelectProject = { projectId ->
-                    vm.selectProject(projectId)
+                onFiles = onFiles,
+                onTerminal = onTerminal,
+                onSelectProject = { tabId ->
+                    vm.selectTab(tabId)
                     issueDraft = null
                 },
+                onOpenTab = vm::openTab,
+                onCloseTab = vm::closeTab,
+                onRenameTab = vm::renameTab,
                 onProjectAction = runProjectAction,
                 onDownloadArtifact = vm::downloadLatestApk,
                 onOpenArtifact = { path -> openApk(context, path) },
                 onCommandChange = vm::setCommand,
+                onCommandFavoriteChange = vm::setCommandFavorite,
+                onLoadCommandFavorite = vm::loadCommandFavorite,
                 onRun = runWithLanPermission,
+                onProjectHome = { if (vm.prepareProjectHome()) runWithLanPermission() },
+                onParentDirectory = { if (vm.prepareParentDirectory()) runWithLanPermission() },
                 onCopy = { text -> copyText(context, text) },
                 onUnlockGitKey = vm::openGitKeyUnlock,
                 onRefreshGitKey = vm::refreshGitKeyStatus,
@@ -138,7 +176,7 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
                 },
                 onNew = {
                     projectSwitcherOpen = false
-                    vm.openNewProjectEditor()
+                    vm.openQuickImport()
                 },
                 onEdit = {
                     projectSwitcherOpen = false
@@ -148,10 +186,53 @@ fun PocketDevApp(vm: PocketDevViewModel = viewModel()) {
             )
         }
 
+        if (state.quickImportOpen) {
+            var repositoryInput by remember { mutableStateOf("") }
+            AlertDialog(
+                onDismissRequest = vm::closeQuickImport,
+                title = { Text("Add from GitHub") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = repositoryInput,
+                            onValueChange = { repositoryInput = it },
+                            label = { Text("GitHub repository") },
+                            placeholder = { Text("fgna/ae") },
+                            singleLine = true,
+                            enabled = !state.quickImportBusy,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Text("Checks ~/Projects on the SSH server. Reuses a matching checkout or clones a missing one.", style = MaterialTheme.typography.bodySmall)
+                        state.quickImportError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        if (state.quickImportBusy) Text("Checking server…")
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = { vm.importFromGitHub(repositoryInput) },
+                        enabled = repositoryInput.isNotBlank() && !state.quickImportBusy,
+                    ) { Text("Add project") }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(onClick = {
+                            vm.closeQuickImport()
+                            vm.openNewProjectEditor()
+                        }, enabled = !state.quickImportBusy) { Text("Advanced") }
+                        TextButton(onClick = vm::closeQuickImport, enabled = !state.quickImportBusy) { Text("Cancel") }
+                    }
+                },
+            )
+        }
+
         if (state.projectEditorOpen) {
             ProjectDialog(
                 state = state.projectEditor,
                 editingExisting = state.projectEditorId != null,
+                profiles = state.actionProfiles,
+                profileUseCount = state.projects.count { it.actionProfileId == state.projectEditor.actionProfileId },
+                onSelectProfile = vm::selectActionProfile,
+                onSaveProfile = vm::saveActionProfile,
                 onChange = vm::updateProjectEditor,
                 onDismiss = vm::closeProjectEditor,
                 onSave = vm::saveProjectEditor,
@@ -215,12 +296,21 @@ private fun PocketDevHome(
     state: PocketDevState,
     onConfigure: () -> Unit,
     onProjects: () -> Unit,
+    onFiles: (() -> Unit)?,
+    onTerminal: (() -> Unit)?,
     onSelectProject: (String) -> Unit,
-    onProjectAction: (ProjectAction) -> Unit,
+    onOpenTab: (String) -> Unit,
+    onCloseTab: (String) -> Unit,
+    onRenameTab: (String, String) -> Unit,
+    onProjectAction: (String) -> Unit,
     onDownloadArtifact: () -> Unit,
     onOpenArtifact: (String) -> Unit,
     onCommandChange: (String) -> Unit,
+    onCommandFavoriteChange: (String, String, Boolean) -> Unit,
+    onLoadCommandFavorite: (String, String) -> Unit,
     onRun: () -> Unit,
+    onProjectHome: () -> Unit,
+    onParentDirectory: () -> Unit,
     onCopy: (String) -> Unit,
     onUnlockGitKey: () -> Unit,
     onRefreshGitKey: () -> Unit,
@@ -231,6 +321,32 @@ private fun PocketDevHome(
     val execution = state.command
     val artifact = state.artifact
     val busy = execution.running || artifact.downloading
+    var renamingTabId by remember { mutableStateOf<String?>(null) }
+    var tabName by remember { mutableStateOf("") }
+    var navigationMenuOpen by remember { mutableStateOf(false) }
+
+    if (renamingTabId != null) {
+        AlertDialog(
+            onDismissRequest = { renamingTabId = null },
+            title = { Text("Rename tab") },
+            text = {
+                OutlinedTextField(
+                    value = tabName,
+                    onValueChange = { tabName = it.take(60) },
+                    label = { Text("Tab name") },
+                    supportingText = { Text("Leave empty to use the project name.") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    renamingTabId?.let { onRenameTab(it, tabName) }
+                    renamingTabId = null
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { renamingTabId = null }) { Text("Cancel") } },
+        )
+    }
 
     val headerState = when {
         artifact.error != null || execution.connectionError != null || (execution.exitCode != null && execution.exitCode != 0) -> PocketDevIndicatorState.Warning
@@ -259,12 +375,45 @@ private fun PocketDevHome(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text("PocketDev", style = MaterialTheme.typography.titleLarge)
+                            Text(WorkspaceTabs.labels(state.tabSelection.tabs, state.projects).firstOrNull { it.tabId == state.activeTabId }?.title ?: "PocketDev", style = MaterialTheme.typography.titleLarge)
                             PocketDevContextStrip(headerLabel, state = headerState)
                         }
                         Spacer(modifier = Modifier.weight(1f))
-                        TextButton(onClick = onConfigure) { Text("Server") }
-                        TextButton(onClick = onProjects) { Text("Projects") }
+                        Box {
+                            IconButton(onClick = { navigationMenuOpen = true }) {
+                                Icon(
+                                    imageVector = Icons.Filled.Menu,
+                                    contentDescription = "Open navigation menu",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = navigationMenuOpen,
+                                onDismissRequest = { navigationMenuOpen = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Server") },
+                                    onClick = { navigationMenuOpen = false; onConfigure() },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Projects") },
+                                    onClick = { navigationMenuOpen = false; onProjects() },
+                                )
+                                if (onFiles != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Files") },
+                                        onClick = { navigationMenuOpen = false; onFiles() },
+                                    )
+                                }
+                                if (onTerminal != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Interactive SSH terminal") },
+                                        enabled = !execution.running && profile != null && project != null && state.hasStoredSecret,
+                                        onClick = { navigationMenuOpen = false; onTerminal() },
+                                    )
+                                }
+                            }
+                        }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
@@ -273,9 +422,11 @@ private fun PocketDevHome(
         bottomBar = {
             BottomProjectTabs(
                 projects = state.projects,
-                activeProjectId = project?.id,
+                tabs = state.tabSelection,
                 sessions = state.sessions,
                 onSelect = onSelectProject,
+                onOpenTab = onOpenTab,
+                onAddProject = onProjects,
             )
         },
     ) { innerPadding ->
@@ -292,18 +443,35 @@ private fun PocketDevHome(
                     Row(modifier = Modifier.fillMaxWidth()) {
                         PocketDevSectionLabel("Workspace", modifier = Modifier.weight(1f))
                         if (state.projects.size > 1) Text("${state.projects.size} projects", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        state.activeTabId?.let { activeTabId ->
+                            TextButton(onClick = {
+                                tabName = state.tabSelection.activeTab?.customTitle.orEmpty()
+                                renamingTabId = activeTabId
+                            }) { Text("Rename", style = MaterialTheme.typography.labelSmall) }
+
+                            val tabBusy = state.sessions[activeTabId]?.let { it.command.running || it.artifact.downloading } == true
+                            TextButton(
+                                onClick = { onCloseTab(activeTabId) },
+                                enabled = !tabBusy && state.pendingProjectCreate?.tabId != activeTabId &&
+                                    state.pendingHostKeyProjectId != activeTabId,
+                            ) { Text("Close tab", style = MaterialTheme.typography.labelSmall) }
+                        }
                     }
                     when {
                         profile == null -> Text("Configure an SSH server to start.", style = MaterialTheme.typography.bodyMedium)
                         project == null -> {
                             PocketDevCompactMeta("Server", "${profile.username}@${profile.host}:${profile.port}")
                             Text("Add a remote project to enable one-tap actions.", style = MaterialTheme.typography.bodyMedium)
+                            OutlinedButton(onClick = onProjects) { Text("Add first project") }
                         }
                         else -> {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                     Text(project.name, style = MaterialTheme.typography.titleMedium)
                                     Text(project.remotePath, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    state.currentGitBranch?.let { branch ->
+                                        Text("branch · $branch", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
                                 }
                                 Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                     Text("${profile.username}@${profile.host}", style = MaterialTheme.typography.bodySmall)
@@ -334,20 +502,67 @@ private fun PocketDevHome(
                                 Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                             }
 
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                OutlinedButton(modifier = Modifier.weight(1f), onClick = { onProjectAction(ProjectAction.GIT_STATUS) }, enabled = !busy) { Text("Status") }
-                                OutlinedButton(modifier = Modifier.weight(1f), onClick = { onProjectAction(ProjectAction.TEST) }, enabled = !busy && project.testCommand.isNotBlank()) { Text("Test") }
-                                Button(modifier = Modifier.weight(1f), onClick = { onProjectAction(ProjectAction.BUILD) }, enabled = !busy && project.buildCommand.isNotBlank()) { Text("Build") }
+                            val actionsResult = remember(project, state.actionProfiles) {
+                                runCatching { ProjectCommandBuilder.availableActions(project, state.actionProfiles) }
+                            }
+                            val actions = actionsResult.getOrDefault(emptyList())
+                            val actionProfile = state.actionProfiles.firstOrNull { it.id == project.actionProfileId }
+                            Text(actionProfile?.name ?: "Unavailable action profile", style = MaterialTheme.typography.labelMedium)
+                            actionsResult.exceptionOrNull()?.let {
+                                Text("Select an available profile in Projects → Edit.", color = MaterialTheme.colorScheme.error)
+                            }
+                            var pendingAction by remember(project.id, project.actionProfileId, project.customActions, project.actionOrder, state.actionProfiles) { mutableStateOf<ActionDefinition?>(null) }
+                            actions.chunked(3).forEach { group ->
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    group.forEach { action ->
+                                        OutlinedButton(
+                                            modifier = Modifier.weight(1f),
+                                            onClick = {
+                                                if (action.requiresConfirmation) pendingAction = action
+                                                else onProjectAction(action.id)
+                                            },
+                                            enabled = !busy,
+                                        ) { Text(action.label) }
+                                    }
+                                }
+                            }
+                            pendingAction?.let { action ->
+                                AlertDialog(
+                                    onDismissRequest = { pendingAction = null },
+                                    title = { Text("Run ${action.label}?") },
+                                    text = { Text("${profile.username}@${profile.host}\n${state.projects.firstOrNull { it.id == project.id }?.remotePath ?: project.remotePath}\n\n${action.command}") },
+                                    confirmButton = {
+                                        TextButton(enabled = !busy, onClick = {
+                                            pendingAction = null
+                                            onProjectAction(action.id)
+                                        }) { Text("Run") }
+                                    },
+                                    dismissButton = { TextButton(onClick = { pendingAction = null }) { Text("Cancel") } },
+                                )
                             }
 
+                            if (actionProfile?.supportsApk == true) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 OutlinedButton(modifier = Modifier.weight(1f), onClick = onDownloadArtifact, enabled = profile.hostKeySha256.isNotBlank() && state.hasStoredSecret && !busy) { Text(if (artifact.downloading) "Downloading…" else "Get APK") }
                                 OutlinedButton(modifier = Modifier.weight(1f), onClick = { artifact.localPath?.let(onOpenArtifact) }, enabled = artifact.localPath != null && !artifact.downloading) { Text("Open APK") }
                             }
+                            }
 
-                            when {
-                                artifact.error != null -> Text("APK: ${artifact.error}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                                artifact.localPath != null -> Text("APK: ${File(artifact.localPath).name}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            artifact.localPath?.let { localPath ->
+                                Text(
+                                    "APK: ${artifact.remotePath ?: File(localPath).name}\nSHA-256: ${artifact.sha256 ?: "unknown"}" +
+                                        (artifact.sizeBytes?.let { "\nSize: $it bytes" } ?: ""),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            artifact.error?.let { message ->
+                                Text(
+                                    message,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (artifact.verified || artifact.localPath != null) MaterialTheme.colorScheme.onSurfaceVariant
+                                            else MaterialTheme.colorScheme.error,
+                                )
                             }
                         }
                     }
@@ -358,13 +573,9 @@ private fun PocketDevHome(
                 Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(modifier = Modifier.fillMaxWidth()) {
                         PocketDevSectionLabel("Command", modifier = Modifier.weight(1f))
-                        TextButton(onClick = { onCommandChange("pwd") }, enabled = !busy) { Text("pwd") }
+                        TextButton(onClick = onParentDirectory, enabled = project != null && profile != null && state.hasStoredSecret && !busy) { Text("cd ..") }
                         TextButton(
-                            onClick = {
-                                val remotePath = project?.remotePath ?: return@TextButton
-                                onCommandChange("cd ${ProjectCommandBuilder.shellQuote(remotePath)}")
-                                onRun()
-                            },
+                            onClick = onProjectHome,
                             enabled = project != null && profile != null && state.hasStoredSecret && !busy,
                         ) { Text("cd Project home") }
                         TextButton(onClick = { onCommandChange("") }, enabled = !busy && execution.command.isNotEmpty()) { Text("Clear") }
@@ -376,6 +587,15 @@ private fun PocketDevHome(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    if (project != null) {
+                        CommandFavorites(
+                            project = project,
+                            command = execution.command,
+                            canLoad = !busy,
+                            onFavoriteChange = onCommandFavoriteChange,
+                            onLoad = onLoadCommandFavorite,
+                        )
+                    }
                     OutlinedTextField(
                         value = execution.command,
                         onValueChange = onCommandChange,
@@ -384,6 +604,7 @@ private fun PocketDevHome(
                         maxLines = 5,
                         enabled = !busy,
                         textStyle = MaterialTheme.typography.bodyMedium,
+                        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
                     )
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Button(modifier = Modifier.weight(1f), onClick = onRun, enabled = profile != null && state.hasStoredSecret && execution.command.isNotBlank() && !busy) { Text(if (execution.running) "Running…" else "Run") }
@@ -415,6 +636,29 @@ private fun PocketDevHome(
                         }
                         if (execution.exitCode != null && execution.exitCode != 0) TextButton(onClick = onIssueDraft) { Text("Git Issue") }
                         TextButton(onClick = { onCopy(execution.combinedOutput) }, enabled = execution.combinedOutput.isNotBlank()) { Text("Copy") }
+                    }
+                    if (execution.codexAction != null) {
+                        var now by remember(execution.startedAtMs) { mutableStateOf(System.currentTimeMillis()) }
+                        LaunchedEffect(execution.running, execution.startedAtMs) {
+                            while (execution.running) {
+                                now = System.currentTimeMillis()
+                                delay(1000)
+                            }
+                        }
+                        val elapsed = execution.startedAtMs?.let { (now - it).coerceAtLeast(0) / 1000 } ?: 0
+                        val idle = execution.lastActivityAtMs?.let { (now - it).coerceAtLeast(0) / 1000 }
+                        Text("Codex · ${execution.codexAction} · elapsed ${elapsed}s", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            if (idle == null) "No output received yet" else "Last output ${idle}s ago" +
+                                if (execution.running && idle > 60) " · quiet, stall unconfirmed" else "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (execution.codexNeedsInput) Text("Codex requested input or approval. Review on the server.", color = MaterialTheme.colorScheme.error)
+                        execution.remoteLogPrefix?.let { prefix ->
+                            Text("Server logs: ${prefix}.stdout / .stderr", style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { onCopy("${prefix}.stdout\n${prefix}.stderr") }) { Text("Copy log paths") }
+                        }
                     }
                     Text(execution.combinedOutput.ifBlank { "No output yet." }, style = MaterialTheme.typography.bodySmall)
                 }
@@ -493,33 +737,41 @@ private fun GitKeyUnlockDialog(
 @Composable
 private fun BottomProjectTabs(
     projects: List<ProjectConfig>,
-    activeProjectId: String?,
+    tabs: WorkspaceTabSelection,
     sessions: Map<String, ProjectSessionState>,
     onSelect: (String) -> Unit,
+    onOpenTab: (String) -> Unit,
+    onAddProject: () -> Unit,
 ) {
+    val titles = WorkspaceTabs.labels(tabs.tabs, projects)
     Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp, shadowElevation = 6.dp) {
         Column {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Text("Projects · ${projects.size}", modifier = Modifier.padding(start = 12.dp, top = 5.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Tabs · ${tabs.tabs.size}", modifier = Modifier.padding(start = 12.dp, top = 5.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 8.dp, vertical = 5.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                if (projects.isEmpty()) {
-                    TextButton(onClick = {}) { Text("No projects") }
-                } else {
-                    projects.forEach { tabProject ->
-                        val session = sessions[tabProject.id]
-                        val running = session?.command?.running == true || session?.artifact?.downloading == true
-                        val failed = session?.command?.exitCode?.let { it != 0 } == true || session?.command?.connectionError != null || session?.artifact?.error != null
-                        val label = buildString {
-                            if (running) append("● ") else if (failed) append("! ")
-                            append(tabProject.name)
-                        }
-                        if (tabProject.id == activeProjectId) Button(onClick = { onSelect(tabProject.id) }) { Text(label) }
-                        else OutlinedButton(onClick = { onSelect(tabProject.id) }) { Text(label) }
+                titles.forEach { tab ->
+                    val session = sessions[tab.tabId]
+                    val running = session?.command?.running == true || session?.artifact?.downloading == true
+                    val failed = session?.command?.exitCode?.let { it != 0 } == true ||
+                        session?.command?.connectionError != null || session?.artifact?.error != null
+                    val label = buildString {
+                        if (running) append("● ") else if (failed) append("! ")
+                        append(tab.title)
                     }
+                    if (tab.tabId == tabs.activeTabId) {
+                        Button(onClick = { onSelect(tab.tabId) }) { Text(label) }
+                    } else {
+                        OutlinedButton(onClick = { onSelect(tab.tabId) }) { Text(label) }
+                    }
+                 }
+                val currentProjectId = tabs.activeTab?.projectId
+                if (currentProjectId != null) {
+                    OutlinedButton(onClick = { onOpenTab(currentProjectId) }) { Text("+ Tab") }
                 }
+                TextButton(onClick = onAddProject) { Text(if (projects.isEmpty()) "Add project" else "Projects") }
             }
         }
     }
@@ -553,56 +805,6 @@ private fun ProjectSwitcherDialog(
             }
         },
     )
-}
-
-@Composable
-private fun ProjectDialog(
-    state: ProjectEditorState,
-    editingExisting: Boolean,
-    onChange: ((ProjectEditorState) -> ProjectEditorState) -> Unit,
-    onDismiss: () -> Unit,
-    onSave: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    var confirmDelete by remember { mutableStateOf(false) }
-    val remotePathValid = state.remotePath.trim().startsWith("/")
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (editingExisting) "Edit project" else "New project") },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = state.name, onValueChange = { value -> onChange { it.copy(name = value) } }, label = { Text("Name") }, singleLine = true)
-                OutlinedTextField(
-                    value = state.remotePath,
-                    onValueChange = { value -> onChange { it.copy(remotePath = value) } },
-                    label = { Text("Remote path") },
-                    supportingText = { Text(if (state.remotePath.isNotBlank() && !remotePathValid) "Must start with /, e.g. /home/user/Projects/app" else "Absolute directory on the SSH server") },
-                    isError = state.remotePath.isNotBlank() && !remotePathValid,
-                )
-                OutlinedTextField(value = state.testCommand, onValueChange = { value -> onChange { it.copy(testCommand = value) } }, label = { Text("Test command") }, singleLine = true)
-                OutlinedTextField(value = state.buildCommand, onValueChange = { value -> onChange { it.copy(buildCommand = value) } }, label = { Text("Build command") }, singleLine = true)
-                OutlinedTextField(value = state.githubRepository, onValueChange = { value -> onChange { it.copy(githubRepository = value.trim()) } }, label = { Text("GitHub repository") }, supportingText = { Text("Optional owner/name, e.g. fgna/pocketdev") }, singleLine = true)
-            }
-        },
-        confirmButton = { TextButton(onClick = onSave, enabled = state.name.isNotBlank() && remotePathValid) { Text("Save") } },
-        dismissButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (editingExisting) TextButton(onClick = { confirmDelete = true }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-            }
-        },
-    )
-
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete project?") },
-            text = { Text("This removes the saved PocketDev project configuration. It does not delete the remote repository.") },
-            confirmButton = { TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
-        )
-    }
 }
 
 @Composable
@@ -652,6 +854,10 @@ private fun ProfileDialog(
                     OutlinedButton(onClick = { onChange { it.copy(authMode = AuthMode.PASSWORD) } }, enabled = state.authMode != AuthMode.PASSWORD) { Text("Password") }
                     OutlinedButton(onClick = { onChange { it.copy(authMode = AuthMode.PRIVATE_KEY) } }, enabled = state.authMode != AuthMode.PRIVATE_KEY) { Text("Private key") }
                 }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.material3.Checkbox(checked = state.loginShell, onCheckedChange = { enabled -> onChange { it.copy(loginShell = enabled) } })
+                    Text("Login shell (load server PATH from ~/.profile)")
+                }
                 OutlinedTextField(value = state.secret, onValueChange = { value -> onChange { it.copy(secret = value) } }, label = { Text(if (state.authMode == AuthMode.PASSWORD) "Password" else "Private key (PEM)") }, visualTransformation = if (state.authMode == AuthMode.PASSWORD) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None, supportingText = { Text("Leave empty to keep the stored secret.") }, minLines = if (state.authMode == AuthMode.PRIVATE_KEY) 4 else 1)
             }
         },
@@ -679,6 +885,23 @@ private fun openApk(context: Context, path: String) {
         return
     }
 
+    val actualHash = runCatching {
+        val digest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(file).use { input ->
+            val buffer = ByteArray(8192)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+    }.getOrNull()
+    if (actualHash == null || !actualHash.equals(verifiedHash, ignoreCase = true)) {
+        Toast.makeText(context, "APK verification failed: file changed after download.", Toast.LENGTH_LONG).show()
+        return
+    }
+
     runCatching { ApkInstaller.install(context, file) }
         .onFailure { error ->
             Toast.makeText(context, "Could not start APK install: ${error.message}", Toast.LENGTH_LONG).show()
@@ -695,3 +918,4 @@ private fun openGitHubIssueDraft(context: Context, repository: String, title: St
     val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     runCatching { context.startActivity(intent) }.onFailure { Toast.makeText(context, "Could not open GitHub: ${it.message}", Toast.LENGTH_LONG).show() }
 }
+

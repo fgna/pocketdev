@@ -30,7 +30,7 @@ internal object ArtifactDownloadHistory {
     fun warningFor(localPath: String?): String? {
         if (localPath.isNullOrBlank()) return null
         val marker = File(localPath + UNCHANGED_MARKER_SUFFIX)
-        return if (marker.isFile) "unchanged since last download." else null
+        return if (marker.isFile) "Verified APK bytes unchanged since previous download." else null
     }
 
     fun shouldPreserveDuringCleanup(file: File): Boolean =

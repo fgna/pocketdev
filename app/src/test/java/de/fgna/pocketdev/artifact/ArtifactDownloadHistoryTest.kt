@@ -30,7 +30,7 @@ class ArtifactDownloadHistoryTest {
         ArtifactDownloadHistory.recordSuccessfulDownload(directory, firstApk, sha256)
         ArtifactDownloadHistory.recordSuccessfulDownload(directory, secondApk, sha256)
 
-        assertEquals("unchanged since last download.", ArtifactDownloadHistory.warningFor(secondApk.absolutePath))
+        assertEquals("Verified APK bytes unchanged since previous download.", ArtifactDownloadHistory.warningFor(secondApk.absolutePath))
     }
 
     @Test

@@ -7,15 +7,25 @@ import androidx.lifecycle.viewModelScope
 import de.fgna.pocketdev.artifact.ArtifactDownloadState
 import de.fgna.pocketdev.artifact.SshArtifactRetriever
 import de.fgna.pocketdev.data.ProjectConfigRepository
+import de.fgna.pocketdev.data.ActionProfileRepository
 import de.fgna.pocketdev.data.SshProfileRepository
 import de.fgna.pocketdev.project.ProjectAction
 import de.fgna.pocketdev.project.ProjectCommandBuilder
 import de.fgna.pocketdev.project.ProjectConfig
 import de.fgna.pocketdev.project.ProjectProvisioning
+import de.fgna.pocketdev.project.GitHubQuickImport
+import de.fgna.pocketdev.project.ActionDefinition
+import de.fgna.pocketdev.project.ActionProfile
+import de.fgna.pocketdev.project.ActionProfileTemplates
+import de.fgna.pocketdev.project.ActionProfileResolver
+import de.fgna.pocketdev.project.WorkspaceTab
+import de.fgna.pocketdev.project.WorkspaceTabSelection
 import de.fgna.pocketdev.ssh.AuthMode
 import de.fgna.pocketdev.ssh.CommandEvent
+import de.fgna.pocketdev.ssh.CommandInputHandle
 import de.fgna.pocketdev.ssh.CommandStateReducer
 import de.fgna.pocketdev.ssh.CommandUiState
+import de.fgna.pocketdev.ssh.CodexProgress
 import de.fgna.pocketdev.ssh.GitSshAgent
 import de.fgna.pocketdev.ssh.OutputStreamKind
 import de.fgna.pocketdev.ssh.SshProfile
@@ -26,25 +36,31 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.UUID
 
 data class ProfileEditorState(
     val host: String = "",
     val port: String = "22",
     val username: String = "",
     val authMode: AuthMode = AuthMode.PASSWORD,
+    val loginShell: Boolean = true,
     val secret: String = "",
 )
 
 data class ProjectEditorState(
     val name: String = "",
     val remotePath: String = "",
-    val testCommand: String = "./gradlew test",
-    val buildCommand: String = "./gradlew assembleDebug",
+    val testCommand: String = "(cd android && ./gradlew test)",
+    val buildCommand: String = "(cd android && ./gradlew assembleDebug)",
     val githubRepository: String = "",
+    val apkPath: String = "",
+    val actionProfileId: String = "android-gradle",
+    val actions: List<ActionDefinition> = ActionProfileTemplates.android.actions,
+    val error: String? = null,
 )
 
 data class ProjectSessionState(
-    val command: CommandUiState = CommandUiState(command = "pwd"),
+    val command: CommandUiState = CommandUiState(command = ""),
     val artifact: ArtifactDownloadState = ArtifactDownloadState(),
     val workingDirectory: String? = null,
     val gitBranch: String? = null,
@@ -53,6 +69,7 @@ data class ProjectSessionState(
 data class ProjectCreateRequest(
     val projectId: String,
     val command: String,
+    val tabId: String,
 )
 
 enum class GitKeyStatus {
@@ -71,27 +88,35 @@ data class PocketDevState(
     val projects: List<ProjectConfig> = emptyList(),
     val project: ProjectConfig? = null,
     val sessions: Map<String, ProjectSessionState> = emptyMap(),
+    val tabSelection: WorkspaceTabSelection = WorkspaceTabSelection(emptyList(), null),
     val projectEditorOpen: Boolean = false,
     val projectEditorId: String? = null,
     val projectEditor: ProjectEditorState = ProjectEditorState(),
+    val actionProfiles: List<ActionProfile> = ActionProfileTemplates.all,
     val pendingHostKeyFingerprint: String? = null,
     val pendingHostKeyProjectId: String? = null,
     val gitKeyStatus: GitKeyStatus = GitKeyStatus.UNKNOWN,
     val gitKeyMessage: String? = null,
     val gitKeyUnlockOpen: Boolean = false,
     val pendingProjectCreate: ProjectCreateRequest? = null,
+    val quickImportOpen: Boolean = false,
+    val quickImportBusy: Boolean = false,
+    val quickImportError: String? = null,
 ) {
+    val activeTabId: String?
+        get() = tabSelection.activeTabId
+
     val command: CommandUiState
-        get() = project?.let { sessions[it.id]?.command } ?: CommandUiState(command = "pwd")
+        get() = activeTabId?.let { sessions[it]?.command } ?: CommandUiState(command = "pwd")
 
     val artifact: ArtifactDownloadState
-        get() = project?.let { sessions[it.id]?.artifact } ?: ArtifactDownloadState()
+        get() = activeTabId?.let { sessions[it]?.artifact } ?: ArtifactDownloadState()
 
     val currentWorkingDirectory: String?
-        get() = project?.let { sessions[it.id]?.workingDirectory ?: it.remotePath }
+        get() = project?.let { configured -> activeTabId?.let { sessions[it]?.workingDirectory } ?: configured.remotePath }
 
     val currentGitBranch: String?
-        get() = project?.let { sessions[it.id]?.gitBranch }
+        get() = activeTabId?.let { sessions[it]?.gitBranch }
 }
 
 class PocketDevViewModel(
@@ -100,15 +125,19 @@ class PocketDevViewModel(
 ) : AndroidViewModel(application) {
     private val repository = SshProfileRepository(application)
     private val projectRepository = ProjectConfigRepository(application)
+    private val actionProfileRepository = ActionProfileRepository(application)
     private val executor = SshjCommandExecutor()
     private val artifactRetriever = SshArtifactRetriever()
 
     private val _state = MutableStateFlow(loadInitialState())
     val state: StateFlow<PocketDevState> = _state.asStateFlow()
 
+    fun captureCommandInput(tabId: String): CommandInputHandle? =
+        if (_state.value.sessions[tabId]?.command?.running == true) executor.captureInput(tabId) else null
+
     init {
         refreshGitKeyStatus()
-        _state.value.project?.id?.let(::refreshGitBranch)
+        _state.value.activeTabId?.let(::refreshGitBranch)
     }
 
     fun openEditor() {
@@ -121,6 +150,7 @@ class PocketDevViewModel(
                     port = current.port.toString(),
                     username = current.username,
                     authMode = current.authMode,
+                    loginShell = current.loginShell,
                 ),
             )
         }
@@ -142,6 +172,7 @@ class PocketDevViewModel(
             username = editor.username.trim(),
             hostKeySha256 = existingFingerprint,
             authMode = editor.authMode,
+            loginShell = editor.loginShell,
         )
         repository.save(profile, editor.secret.ifBlank { null })
         updateState {
@@ -155,7 +186,7 @@ class PocketDevViewModel(
             )
         }
         refreshGitKeyStatus()
-        _state.value.project?.id?.let(::refreshGitBranch)
+        _state.value.activeTabId?.let(::refreshGitBranch)
     }
 
     fun openProjectEditor() {
@@ -175,8 +206,87 @@ class PocketDevViewModel(
                     testCommand = current.testCommand,
                     buildCommand = current.buildCommand,
                     githubRepository = current.githubRepository,
+                    apkPath = current.apkPath,
+                    actionProfileId = current.actionProfileId,
+                    actions = runCatching { ProjectCommandBuilder.configuredActions(current, it.actionProfiles) }.getOrDefault(emptyList()),
                 ),
             )
+        }
+    }
+
+
+    fun openQuickImport() = updateState { it.copy(quickImportOpen = true, quickImportError = null) }
+
+    fun closeQuickImport() {
+        if (!_state.value.quickImportBusy) updateState { it.copy(quickImportOpen = false, quickImportError = null) }
+    }
+
+    fun importFromGitHub(input: String) {
+        if (_state.value.quickImportBusy) return
+        val repo = runCatching { GitHubQuickImport.parse(input) }.getOrElse { error ->
+            updateState { it.copy(quickImportError = error.message) }
+            return
+        }
+        val existing = _state.value.projects.firstOrNull { it.githubRepository.equals(repo, ignoreCase = true) }
+        if (existing != null) {
+            selectProject(existing.id)
+            updateState { it.copy(quickImportOpen = false, quickImportError = null) }
+            return
+        }
+        val profile = _state.value.profile
+        val secret = repository.loadSecret()
+        if (profile == null || secret.isNullOrBlank()) {
+            updateState { it.copy(quickImportError = "Configure an SSH server first.") }
+            return
+        }
+        updateState { it.copy(quickImportBusy = true, quickImportError = null) }
+        viewModelScope.launch {
+            var output = ""
+            var errorOutput = ""
+            var exitCode: Int? = null
+            var failure: String? = null
+            val commandId = "quick-import"
+            try {
+                executor.execute(profile = profile, secret = secret, command = GitSshAgent.wrap(GitHubQuickImport.command(repo)), commandId = commandId).collect { event ->
+                    when (event) {
+                        is CommandEvent.Output -> if (event.stream == OutputStreamKind.STDOUT) output += event.text else errorOutput += event.text
+                        is CommandEvent.Completed -> exitCode = event.exitCode
+                        is CommandEvent.ConnectionFailed -> failure = event.message
+                        is CommandEvent.HostKeyTrustRequired -> failure = "Confirm the SSH server host key in Server settings first."
+                        else -> Unit
+                    }
+                }
+                val path = output.lineSequence().firstOrNull { it.startsWith("POCKETDEV_IMPORT_OK:") }
+                    ?.removePrefix("POCKETDEV_IMPORT_OK:")?.trim()
+                if (failure == null && exitCode == 0 && path != null && path.startsWith("/")) {
+                    val project = ProjectConfig(
+                        name = repo.substringAfter('/'), remotePath = path,
+                        githubRepository = repo, testCommand = "(cd android && ./gradlew test)",
+                        buildCommand = "(cd android && ./gradlew assembleDebug)",
+                    )
+                    val collection = projectRepository.upsert(project, makeActive = true)
+                    val tabs = _state.value.tabSelection.add(collection.activeProject!!.id, "tab-${UUID.randomUUID()}")
+                    updateState {
+                        val sessions = ensureSessions(collection.projects, it.sessions, tabs)
+                        it.copy(projects = collection.projects, tabSelection = tabs,
+                            project = displayProject(collection.activeProject, sessions, tabs.activeTabId),
+                            sessions = sessions, quickImportOpen = false,
+                            quickImportBusy = false, quickImportError = null)
+                    }
+                    persistTabs(tabs)
+                    tabs.activeTabId?.let(::refreshGitBranch)
+                } else {
+                    val message = when {
+                        output.contains("POCKETDEV_IMPORT_CONFLICT") -> "The Projects folder already contains a different checkout. Use Advanced to select another location."
+                        failure != null -> failure!!
+                        exitCode == 23 -> "Git clone failed. Check GitHub SSH access and unlock your Git key."
+                        else -> errorOutput.trim().take(250).ifBlank { "Could not import repository (exit $exitCode)." }
+                    }
+                    updateState { it.copy(quickImportBusy = false, quickImportError = message) }
+                }
+            } catch (error: Exception) {
+                updateState { it.copy(quickImportBusy = false, quickImportError = error.message ?: "Import failed.") }
+            }
         }
     }
 
@@ -191,74 +301,211 @@ class PocketDevViewModel(
     fun closeProjectEditor() = updateState { it.copy(projectEditorOpen = false) }
 
     fun updateProjectEditor(transform: (ProjectEditorState) -> ProjectEditorState) =
-        updateState { it.copy(projectEditor = transform(it.projectEditor)) }
+        updateState { it.copy(projectEditor = transform(it.projectEditor).copy(error = null)) }
+
+    fun selectActionProfile(profileId: String) {
+        val state = _state.value
+        val editor = state.projectEditor
+        val project = ProjectConfig("", "/tmp", editor.testCommand, editor.buildCommand, actionProfileId = profileId)
+        val actions = runCatching { ProjectCommandBuilder.configuredActions(project, state.actionProfiles) }.getOrElse { return }
+        updateProjectEditor { it.copy(actionProfileId = profileId, actions = actions) }
+    }
+
+    fun saveActionProfile(name: String, replace: Boolean) {
+        val state = _state.value
+        val editor = state.projectEditor
+        runCatching {
+            require(name.isNotBlank()) { "Profile name is required" }
+            val source = state.actionProfiles.firstOrNull { it.id == editor.actionProfileId }
+                ?: error("Select an available action profile")
+            require(!replace || ActionProfileTemplates.find(source.id) == null) { "Copy a built-in profile before editing it" }
+            editor.actions.forEach(ActionProfileResolver::validate)
+            val saved = ActionProfile(
+                id = if (replace) source.id else "profile-${UUID.randomUUID()}",
+                name = name.trim(), actions = editor.actions, supportsApk = source.supportsApk,
+            )
+            val profiles = actionProfileRepository.upsert(saved)
+            updateState {
+                it.copy(actionProfiles = profiles, projectEditor = editor.copy(actionProfileId = saved.id, error = null))
+            }
+        }.onFailure { error -> updateState { it.copy(projectEditor = it.projectEditor.copy(error = error.message)) } }
+    }
+
+    private fun editedProject(editor: ProjectEditorState, id: String): ProjectConfig {
+        editor.actions.forEach(ActionProfileResolver::validate)
+        require(editor.actions.map { it.id }.distinct().size == editor.actions.size) { "Duplicate action IDs" }
+        val android = editor.actionProfileId == ActionProfileTemplates.android.id
+        val base = ProjectConfig(
+            id = id, name = editor.name.trim(), remotePath = editor.remotePath.trim(),
+            testCommand = if (android) editor.actions.firstOrNull { it.id == "test" }?.command ?: editor.testCommand else editor.testCommand,
+            buildCommand = if (android) editor.actions.firstOrNull { it.id == "build" }?.command ?: editor.buildCommand else editor.buildCommand,
+            githubRepository = editor.githubRepository.trim(), apkPath = editor.apkPath.trim(),
+            actionProfileId = editor.actionProfileId,
+            commandFavorites = _state.value.projects.firstOrNull { it.id == id }?.commandFavorites.orEmpty(),
+        )
+        return ProjectCommandBuilder.withEditedActions(base, editor.actions, _state.value.actionProfiles)
+            .also { ProjectCommandBuilder.validate(it, _state.value.actionProfiles) }
+    }
 
     fun saveProjectEditor() {
         val state = _state.value
         val editor = state.projectEditor
-        val project = ProjectConfig(
-            id = state.projectEditorId.orEmpty(),
-            name = editor.name.trim(),
-            remotePath = editor.remotePath.trim(),
-            testCommand = editor.testCommand.trim(),
-            buildCommand = editor.buildCommand.trim(),
-            githubRepository = editor.githubRepository.trim(),
-        )
+        val previous = state.projects.firstOrNull { it.id == state.projectEditorId }
+        val projectTabs = state.tabSelection.tabs.filter { it.projectId == state.projectEditorId }
+        if (projectTabs.any { tab ->
+            state.sessions[tab.id]?.let { it.command.running || it.artifact.downloading } == true
+        }) {
+            updateState { it.copy(projectEditor = editor.copy(error = "Wait for this project's command or download to finish before saving.")) }
+            return
+        }
+        val project = runCatching { editedProject(editor, state.projectEditorId.orEmpty()) }.getOrElse { error ->
+            updateState { it.copy(projectEditor = editor.copy(error = error.message)) }
+            return
+        }
         val collection = projectRepository.upsert(project, makeActive = true)
+        val existingTab = _state.value.tabSelection.tabs.firstOrNull { it.projectId == collection.activeProject?.id }
+        val tabs = if (existingTab != null) _state.value.tabSelection.select(existingTab.id)
+            else _state.value.tabSelection.add(collection.activeProject!!.id, "tab-${UUID.randomUUID()}")
         updateState {
-            val sessions = ensureSessions(collection.projects, it.sessions)
+            var sessions = ensureSessions(collection.projects, it.sessions, tabs)
+            if (previous != null && previous.remotePath != project.remotePath) {
+                tabs.tabs.filter { tab -> tab.projectId == project.id }.forEach { tab ->
+                    sessions[tab.id]?.let { session ->
+                        sessions = sessions + (tab.id to session.copy(workingDirectory = project.remotePath, artifact = ArtifactDownloadState()))
+                    }
+                }
+            }
             it.copy(
-                projects = collection.projects,
-                project = displayProject(collection.activeProject, sessions),
+                projects = collection.projects, tabSelection = tabs,
+                project = displayProject(collection.activeProject, sessions, tabs.activeTabId),
                 sessions = sessions,
                 projectEditorOpen = false,
                 projectEditorId = null,
             )
         }
-        collection.activeProject?.id?.let(::refreshGitBranch)
+        persistTabs(tabs)
+        tabs.activeTabId?.let { tabId ->
+            _state.value.sessions[tabId]?.let { persistSession(tabId, it) }
+            refreshGitBranch(tabId)
+        }
     }
 
     fun selectProject(projectId: String) {
-        if (_state.value.project?.id == projectId) {
-            refreshGitBranch(projectId)
-            return
-        }
+        val state = _state.value
+        val tab = state.tabSelection.tabs.firstOrNull { it.projectId == projectId }
+        if (tab != null) selectTab(tab.id) else openTab(projectId)
+    }
+
+    fun openTab(projectId: String) {
+        if (_state.value.projects.none { it.id == projectId }) return
         val collection = projectRepository.setActive(projectId)
+        val next = _state.value.tabSelection.add(projectId, "tab-${UUID.randomUUID()}")
         updateState {
-            val sessions = ensureSessions(collection.projects, it.sessions)
+            val sessions = ensureSessions(collection.projects, it.sessions, next)
             it.copy(
-                projects = collection.projects,
-                project = displayProject(collection.activeProject, sessions),
+                projects = collection.projects, tabSelection = next,
+                project = displayProject(collection.activeProject, sessions, next.activeTabId),
                 sessions = sessions,
             )
         }
-        refreshGitBranch(projectId)
+        persistTabs(next)
+        next.activeTabId?.let(::refreshGitBranch)
+    }
+
+    fun renameTab(tabId: String, title: String) {
+        if (_state.value.tabSelection.tabs.none { it.id == tabId }) return
+        val next = _state.value.tabSelection.rename(tabId, title)
+        updateState { it.copy(tabSelection = next) }
+        persistTabs(next)
+    }
+
+    fun selectTab(tabId: String) {
+        val tab = _state.value.tabSelection.tabs.firstOrNull { it.id == tabId } ?: return
+        val collection = projectRepository.setActive(tab.projectId)
+        val next = _state.value.tabSelection.select(tabId)
+        updateState {
+            it.copy(
+                projects = collection.projects, tabSelection = next,
+                project = displayProject(collection.activeProject, it.sessions, tabId),
+            )
+        }
+        persistTabs(next)
+        refreshGitBranch(tabId)
+    }
+
+    fun closeTab(tabId: String) {
+        val state = _state.value
+        val current = state.sessions[tabId]
+        if (current?.command?.running == true || current?.artifact?.downloading == true ||
+            state.pendingProjectCreate?.tabId == tabId || state.pendingHostKeyProjectId == tabId
+        ) return
+        val next = state.tabSelection.close(tabId)
+        if (next == state.tabSelection) return
+        val activeProject = state.projects.firstOrNull { it.id == next.activeTab?.projectId }
+        if (activeProject != null) projectRepository.setActive(activeProject.id)
+        updateState {
+            it.copy(
+                tabSelection = next, sessions = it.sessions - tabId,
+                project = displayProject(activeProject, it.sessions - tabId, next.activeTabId),
+            )
+        }
+        clearPersistedSession(tabId)
+        persistTabs(next)
+        next.activeTabId?.let(::refreshGitBranch)
     }
 
     fun deleteCurrentProject() {
         val projectId = _state.value.project?.id ?: return
+        val projectTabs = _state.value.tabSelection.tabs.filter { it.projectId == projectId }
+        if (projectTabs.any { tab ->
+            _state.value.sessions[tab.id]?.let { it.command.running || it.artifact.downloading } == true
+        }) {
+            updateState { it.copy(projectEditor = it.projectEditor.copy(error = "Stop the command or wait for the download before deleting this project.")) }
+            return
+        }
         val collection = projectRepository.delete(projectId)
+        val tabs = _state.value.tabSelection.retainProjects(collection.projects.map { it.id }.toSet())
         updateState {
-            val sessions = ensureSessions(collection.projects, it.sessions - projectId)
+            val sessions = ensureSessions(collection.projects, it.sessions, tabs)
             it.copy(
-                projects = collection.projects,
-                project = displayProject(collection.activeProject, sessions),
+                projects = collection.projects, tabSelection = tabs,
+                project = displayProject(collection.projects.firstOrNull { project -> project.id == tabs.activeTab?.projectId }, sessions, tabs.activeTabId),
                 sessions = sessions,
                 projectEditorOpen = false,
                 projectEditorId = null,
                 pendingProjectCreate = it.pendingProjectCreate?.takeUnless { request -> request.projectId == projectId },
             )
         }
-        clearPersistedSession(projectId)
-        collection.activeProject?.id?.let(::refreshGitBranch)
+        projectTabs.forEach { clearPersistedSession(it.id) }
+        persistTabs(tabs)
+        tabs.activeTabId?.let(::refreshGitBranch)
+    }
+
+    fun prepareProjectAction(actionId: String): Boolean {
+        val activeId = _state.value.project?.id ?: return false
+        val tabId = _state.value.activeTabId ?: return false
+        val project = _state.value.projects.firstOrNull { it.id == activeId } ?: return false
+        if (_state.value.sessions[tabId]?.command?.running == true) return false
+        val command = runCatching { ProjectCommandBuilder.command(project, actionId, _state.value.actionProfiles) }
+            .getOrElse { error ->
+                updateSession(tabId) { session ->
+                    session.copy(command = session.command.copy(connectionError = error.message ?: "Project action is not configured."))
+                }
+                return false
+            }
+        updateSession(tabId) { session ->
+            session.copy(workingDirectory = project.remotePath, command = session.command.copy(command = command))
+        }
+        return true
     }
 
     fun prepareProjectAction(action: ProjectAction): Boolean {
         val activeId = _state.value.project?.id ?: return false
+        val tabId = _state.value.activeTabId ?: return false
         val project = _state.value.projects.firstOrNull { it.id == activeId } ?: return false
         val command = runCatching { ProjectCommandBuilder.command(project, action) }
             .getOrElse { error ->
-                updateSession(project.id) { session ->
+                updateSession(tabId) { session ->
                     session.copy(command = session.command.copy(connectionError = error.message ?: "Project action is not configured."))
                 }
                 return false
@@ -271,38 +518,42 @@ class PocketDevViewModel(
         val profile = _state.value.profile ?: return
         val activeId = _state.value.project?.id ?: return
         val project = _state.value.projects.firstOrNull { it.id == activeId } ?: return
-        val projectId = project.id
+        if (!runCatching { ProjectCommandBuilder.actionProfile(project, _state.value.actionProfiles).supportsApk }.getOrDefault(false)) return
+        val tabId = _state.value.activeTabId ?: return
+        if (_state.value.sessions[tabId]?.artifact?.downloading == true) return
         val secret = repository.loadSecret()
         if (secret.isNullOrBlank()) {
-            updateSession(projectId) { it.copy(artifact = it.artifact.copy(error = "No authentication secret is stored.")) }
+            updateSession(tabId) { it.copy(artifact = it.artifact.copy(error = "No authentication secret is stored.")) }
             return
         }
         if (profile.hostKeySha256.isBlank()) {
-            updateSession(projectId) { it.copy(artifact = it.artifact.copy(error = "Trust the SSH server before downloading artifacts.")) }
+            updateSession(tabId) { it.copy(artifact = it.artifact.copy(error = "Trust the SSH server before downloading artifacts.")) }
             return
         }
 
-        updateSession(projectId) { it.copy(artifact = ArtifactDownloadState(downloading = true)) }
+        updateSession(tabId) { it.copy(artifact = ArtifactDownloadState(downloading = true)) }
         viewModelScope.launch {
             runCatching {
                 artifactRetriever.downloadLatestApk(
                     profile = profile,
                     secret = secret,
                     project = project,
-                    destinationDir = File(getApplication<Application>().cacheDir, "artifacts/$projectId"),
+                    destinationDir = File(getApplication<Application>().cacheDir, "artifacts/$tabId"),
                 )
             }.onSuccess { downloaded ->
-                updateSession(projectId) {
+                updateSession(tabId) {
                     it.copy(
                         artifact = ArtifactDownloadState(
                             downloading = false,
                             remotePath = downloaded.remotePath,
                             localPath = downloaded.localFile.absolutePath,
+                            sizeBytes = downloaded.sizeBytes,
+                            sha256 = downloaded.sha256,
                         ),
                     )
                 }
             }.onFailure { error ->
-                updateSession(projectId) {
+                updateSession(tabId) {
                     it.copy(
                         artifact = ArtifactDownloadState(
                             downloading = false,
@@ -374,12 +625,13 @@ class PocketDevViewModel(
         }
     }
 
-    private fun refreshGitBranch(projectId: String) {
+    private fun refreshGitBranch(tabId: String) {
         val profile = _state.value.profile ?: return
         if (profile.hostKeySha256.isBlank()) return
+        val projectId = _state.value.tabSelection.tabs.firstOrNull { it.id == tabId }?.projectId ?: return
         val project = _state.value.projects.firstOrNull { it.id == projectId } ?: return
         val secret = repository.loadSecret()?.takeIf { it.isNotBlank() } ?: return
-        val session = _state.value.sessions[projectId] ?: return
+        val session = _state.value.sessions[tabId] ?: return
         if (session.command.running) return
         val cwd = session.workingDirectory?.takeIf { it.startsWith("/") } ?: project.remotePath
         val quotedCwd = ProjectCommandBuilder.shellQuote(cwd)
@@ -403,7 +655,7 @@ class PocketDevViewModel(
             }
             if (!failed && (exitCode == 0 || exitCode == null)) {
                 val branch = stdout.lineSequence().map(String::trim).lastOrNull { it.isNotBlank() }
-                updateSession(projectId) { current -> current.copy(gitBranch = branch) }
+                updateSession(tabId) { current -> current.copy(gitBranch = branch) }
             }
         }
     }
@@ -450,7 +702,7 @@ class PocketDevViewModel(
             }
             if (ready) {
                 if (_state.value.pendingProjectCreate != null) createPendingProject()
-                _state.value.project?.id?.let(::refreshGitBranch)
+                _state.value.activeTabId?.let(::refreshGitBranch)
             }
         }
     }
@@ -459,6 +711,10 @@ class PocketDevViewModel(
 
     fun createPendingProject() {
         val request = _state.value.pendingProjectCreate ?: return
+        if (_state.value.tabSelection.tabs.none { it.id == request.tabId && it.projectId == request.projectId }) {
+            dismissProjectCreate()
+            return
+        }
         val project = _state.value.projects.firstOrNull { it.id == request.projectId } ?: run {
             dismissProjectCreate()
             return
@@ -471,7 +727,7 @@ class PocketDevViewModel(
         val secret = repository.loadSecret()
         if (secret.isNullOrBlank()) return
         val command = runCatching { ProjectProvisioning.createCommand(project) }.getOrElse { error ->
-            updateSession(project.id) { session ->
+            updateSession(request.tabId) { session ->
                 session.copy(command = session.command.copy(connectionError = error.message ?: "Project could not be created."))
             }
             dismissProjectCreate()
@@ -479,7 +735,7 @@ class PocketDevViewModel(
         }
 
         updateState { it.copy(pendingProjectCreate = null) }
-        updateSession(project.id) {
+        updateSession(request.tabId) {
             it.copy(command = it.command.copy(running = true, stdout = "", stderr = "", exitCode = null, connectionError = null))
         }
         viewModelScope.launch {
@@ -490,24 +746,24 @@ class PocketDevViewModel(
                 profile = profile,
                 secret = secret,
                 command = GitSshAgent.wrap(command),
-                commandId = project.id,
+                commandId = request.tabId,
             ).collect { event ->
                 when (event) {
                     is CommandEvent.Output -> {
                         if (event.stream == OutputStreamKind.STDOUT) stdout += event.text
-                        updateSession(project.id) { session ->
+                        updateSession(request.tabId) { session ->
                             session.copy(command = CommandStateReducer.reduce(session.command, event))
                         }
                     }
                     is CommandEvent.Completed -> {
                         exitCode = event.exitCode
-                        updateSession(project.id) { session ->
+                        updateSession(request.tabId) { session ->
                             session.copy(command = CommandStateReducer.reduce(session.command, event))
                         }
                     }
                     is CommandEvent.ConnectionFailed -> {
                         connectionError = event.message
-                        updateSession(project.id) { session ->
+                        updateSession(request.tabId) { session ->
                             session.copy(command = CommandStateReducer.reduce(session.command, event))
                         }
                     }
@@ -516,42 +772,88 @@ class PocketDevViewModel(
             }
             refreshGitKeyStatus()
             if (connectionError == null && exitCode == 0 && stdout.contains(ProjectProvisioning.CREATED_MARKER)) {
-                updateSession(project.id) { session ->
+                updateSession(request.tabId) { session ->
                     session.copy(
                         workingDirectory = project.remotePath,
                         command = session.command.copy(command = request.command, running = false),
                     )
                 }
-                runCommandFor(project.id, skipProjectCheck = true)
+                runCommandFor(request.tabId, skipProjectCheck = true)
             }
         }
     }
 
+    fun setCommandFavorite(projectId: String, command: String, saved: Boolean) {
+        val project = _state.value.projects.firstOrNull { it.id == projectId } ?: return
+        if (command.isBlank()) return
+        val collection = projectRepository.upsert(project.withCommandFavorite(command, saved), makeActive = false)
+        updateState {
+            it.copy(projects = collection.projects, project = displayProject(
+                collection.projects.firstOrNull { entry -> entry.id == it.tabSelection.activeTab?.projectId },
+                it.sessions, it.activeTabId,
+            ))
+        }
+    }
+
+    fun loadCommandFavorite(projectId: String, command: String) {
+        val state = _state.value
+        if (state.project?.id != projectId || command !in state.project.commandFavorites) return
+        if (state.command.running || state.artifact.downloading) return
+        setCommand(command)
+    }
+
     fun setCommand(command: String) {
-        val projectId = _state.value.project?.id ?: return
-        updateSession(projectId) { it.copy(command = it.command.copy(command = command)) }
+        val tabId = _state.value.activeTabId ?: return
+        updateSession(tabId) { it.copy(command = it.command.copy(command = command)) }
     }
 
-    fun runCommand() {
-        val projectId = _state.value.project?.id ?: return
-        runCommandFor(projectId)
+    fun prepareParentDirectory(): Boolean {
+        val project = _state.value.project ?: return false
+        val tabId = _state.value.activeTabId ?: return false
+        val session = _state.value.sessions[tabId] ?: return false
+        if (session.command.running) return false
+        updateSession(tabId) {
+            it.copy(command = it.command.copy(command = "cd .. && pwd"))
+        }
+        return true
     }
 
-    private fun runCommandFor(projectId: String, skipProjectCheck: Boolean = false) {
+    fun prepareProjectHome(): Boolean {
+        val project = _state.value.project ?: return false
+        val tabId = _state.value.activeTabId ?: return false
+        val session = _state.value.sessions[tabId] ?: return false
+        if (session.command.running) return false
+        // Reset to the configured project root, independent of remembered cwd.
+        updateSession(tabId) {
+            it.copy(
+                workingDirectory = project.remotePath,
+                command = it.command.copy(command = "pwd"),
+            )
+        }
+        return true
+    }
+
+    fun runCommand(tabId: String? = _state.value.activeTabId) {
+        val selectedTabId = tabId ?: return
+        runCommandFor(selectedTabId)
+    }
+
+    private fun runCommandFor(tabId: String, skipProjectCheck: Boolean = false) {
         val profile = _state.value.profile ?: return
+        val projectId = _state.value.tabSelection.tabs.firstOrNull { it.id == tabId }?.projectId ?: return
         val project = _state.value.projects.firstOrNull { it.id == projectId } ?: return
         val secret = repository.loadSecret()
         if (secret.isNullOrBlank()) {
-            updateSession(projectId) { it.copy(command = it.command.copy(connectionError = "No authentication secret is stored.")) }
+            updateSession(tabId) { it.copy(command = it.command.copy(connectionError = "No authentication secret is stored.")) }
             return
         }
-        val session = _state.value.sessions[projectId] ?: return
+        val session = _state.value.sessions[tabId] ?: return
         if (session.command.running) return
         val commandText = session.command.command.trim()
         if (commandText.isEmpty()) return
 
         if (!skipProjectCheck) {
-            updateSession(projectId) {
+            updateSession(tabId) {
                 it.copy(command = it.command.copy(running = true, stdout = "", stderr = "", exitCode = null, connectionError = null))
             }
             viewModelScope.launch {
@@ -564,7 +866,7 @@ class PocketDevViewModel(
                     profile = profile,
                     secret = secret,
                     command = GitSshAgent.wrap(ProjectProvisioning.checkCommand(project)),
-                    commandId = projectId,
+                    commandId = tabId,
                 ).collect { event ->
                     when (event) {
                         is CommandEvent.Output -> when (event.stream) {
@@ -578,27 +880,29 @@ class PocketDevViewModel(
                             updateState {
                                 it.copy(
                                     pendingHostKeyFingerprint = event.fingerprint,
-                                    pendingHostKeyProjectId = projectId,
+                                    pendingHostKeyProjectId = tabId,
                                 )
                             }
                         }
                         else -> Unit
                     }
                 }
-                updateSession(projectId) { current -> current.copy(command = current.command.copy(running = false)) }
+                updateSession(tabId) { current -> current.copy(command = current.command.copy(running = false)) }
                 when {
                     hostKeyPending -> Unit
-                    connectionError != null -> updateSession(projectId) { current ->
+                    connectionError != null -> updateSession(tabId) { current ->
                         current.copy(command = current.command.copy(connectionError = connectionError))
                     }
-                    exitCode != 0 -> updateSession(projectId) { current ->
+                    exitCode != 0 -> updateSession(tabId) { current ->
                         current.copy(command = current.command.copy(connectionError = stderr.trim().ifBlank { "Could not inspect the project folder." }))
                     }
                     stdout.contains(ProjectProvisioning.MISSING_MARKER) -> updateState {
-                        it.copy(pendingProjectCreate = ProjectCreateRequest(projectId = projectId, command = commandText))
+                        if (it.tabSelection.tabs.any { tab -> tab.id == tabId }) {
+                            it.copy(pendingProjectCreate = ProjectCreateRequest(projectId = projectId, command = commandText, tabId = tabId))
+                        } else it
                     }
-                    stdout.contains(ProjectProvisioning.EXISTS_MARKER) -> runCommandFor(projectId, skipProjectCheck = true)
-                    else -> updateSession(projectId) { current ->
+                    stdout.contains(ProjectProvisioning.EXISTS_MARKER) -> runCommandFor(tabId, skipProjectCheck = true)
+                    else -> updateSession(tabId) { current ->
                         current.copy(command = current.command.copy(connectionError = "Could not determine whether the project folder exists."))
                     }
                 }
@@ -611,39 +915,40 @@ class PocketDevViewModel(
             ?.takeIf { it.startsWith("/") }
             ?: project.remotePath
         val projectCommand = runCatching {
-            ProjectCommandBuilder.trackedInDirectory(workingDirectory, commandText, projectId)
+            ProjectCommandBuilder.trackedInDirectory(workingDirectory, commandText, tabId)
         }.getOrElse { error ->
-            updateSession(projectId) { current ->
+            updateSession(tabId) { current ->
                 current.copy(command = current.command.copy(running = false, connectionError = error.message ?: "Project command is invalid."))
             }
             return
         }
 
-        updateSession(projectId) {
+        updateSession(tabId) {
             it.copy(command = it.command.copy(running = true, stdout = "", stderr = "", exitCode = null, connectionError = null))
         }
 
+        val executedCommand = if (CodexProgress.enabled(commandText)) codexLoggedCommand(projectCommand) else projectCommand
         viewModelScope.launch {
             executor.execute(
                 profile = profile,
                 secret = secret,
-                command = GitSshAgent.wrap(projectCommand),
-                commandId = projectId,
+                command = GitSshAgent.wrap(executedCommand),
+                commandId = tabId,
             ).collect { event ->
                 if (event is CommandEvent.HostKeyTrustRequired) {
                     updateState {
                         it.copy(
                             pendingHostKeyFingerprint = event.fingerprint,
-                            pendingHostKeyProjectId = projectId,
+                            pendingHostKeyProjectId = tabId,
                         )
                     }
-                    updateSession(projectId) { sessionState ->
+                    updateSession(tabId) { sessionState ->
                         sessionState.copy(command = sessionState.command.copy(running = false))
                     }
                 } else if (event is CommandEvent.Completed) {
-                    updateSession(projectId) { sessionState ->
-                        val reportedCwd = ProjectCommandBuilder.extractWorkingDirectory(sessionState.command.stdout, projectId)
-                        val cleanedStdout = ProjectCommandBuilder.stripWorkingDirectoryMarker(sessionState.command.stdout, projectId)
+                    updateSession(tabId) { sessionState ->
+                        val reportedCwd = ProjectCommandBuilder.extractWorkingDirectory(sessionState.command.stdout, tabId)
+                        val cleanedStdout = ProjectCommandBuilder.stripWorkingDirectoryMarker(sessionState.command.stdout, tabId)
                         val cleanedCommand = sessionState.command.copy(stdout = cleanedStdout)
                         sessionState.copy(
                             workingDirectory = reportedCwd ?: sessionState.workingDirectory ?: project.remotePath,
@@ -651,58 +956,75 @@ class PocketDevViewModel(
                         )
                     }
                 } else {
-                    updateSession(projectId) { sessionState ->
+                    updateSession(tabId) { sessionState ->
                         sessionState.copy(command = CommandStateReducer.reduce(sessionState.command, event))
                     }
                 }
             }
             refreshGitKeyStatus()
-            refreshGitBranch(projectId)
+            refreshGitBranch(tabId)
         }
+    }
+
+    /** Keep private, unmodified Codex stdout and stderr logs on the SSH host. */
+    private fun codexLoggedCommand(command: String): String {
+        val script = listOf(
+            SshjCommandExecutor.interactiveSudoPrelude(),
+            "umask 077",
+            "dir=\"\$HOME/.local/state/pocketdev/jobs\"",
+            "mkdir -p \"\$dir\" || exit 1",
+            "prefix=\"\$dir/\$(date +%Y%m%dT%H%M%S)-\$\$\"",
+            "printf 'POCKETDEV_JOB_LOG:%s\\n' \"\$prefix\"",
+            "exec > >(tee \"\$prefix.stdout\") 2> >(tee \"\$prefix.stderr\" >&2)",
+            command,
+        ).joinToString("\n")
+        return "bash -c " + ProjectCommandBuilder.shellQuote(script)
     }
 
     private fun updateState(transform: (PocketDevState) -> PocketDevState) {
         _state.update(transform)
     }
 
-    private fun updateSession(projectId: String, transform: (ProjectSessionState) -> ProjectSessionState) {
+    private fun updateSession(tabId: String, transform: (ProjectSessionState) -> ProjectSessionState) {
         _state.update { state ->
-            val current = state.sessions[projectId] ?: ProjectSessionState()
+            // Late callbacks from a closed tab must never recreate its session.
+            if (state.tabSelection.tabs.none { it.id == tabId }) return@update state
+            val current = state.sessions[tabId] ?: ProjectSessionState()
             val updated = transform(current)
-            val sessions = state.sessions + (projectId to updated)
-            val displayedProject = if (state.project?.id == projectId) {
-                displayProject(state.projects.firstOrNull { it.id == projectId } ?: state.project, sessions)
-            } else {
-                state.project
-            }
+            val sessions = state.sessions + (tabId to updated)
+            val displayedProject = if (state.activeTabId == tabId) {
+                displayProject(state.projects.firstOrNull { it.id == state.tabSelection.activeTab?.projectId }, sessions, tabId)
+            } else state.project
             state.copy(sessions = sessions, project = displayedProject)
         }
-        _state.value.sessions[projectId]?.let { persistSession(projectId, it) }
+        _state.value.sessions[tabId]?.let { persistSession(tabId, it) }
     }
 
     private fun ensureSessions(
         projects: List<ProjectConfig>,
         current: Map<String, ProjectSessionState>,
-    ): Map<String, ProjectSessionState> = projects.associate { project ->
-        val existing = current[project.id] ?: restoreSession(project.id, project.remotePath)
-        project.id to if (existing.workingDirectory.isNullOrBlank()) {
-            existing.copy(workingDirectory = project.remotePath)
-        } else {
-            existing
+        tabs: WorkspaceTabSelection = _state.value.tabSelection,
+    ): Map<String, ProjectSessionState> {
+        val byId = projects.associateBy { it.id }
+        return tabs.tabs.filter { it.projectId in byId }.associate { tab ->
+            val path = byId.getValue(tab.projectId).remotePath
+            val existing = current[tab.id] ?: restoreSession(tab.id, path)
+            tab.id to if (existing.workingDirectory.isNullOrBlank()) {
+                existing.copy(workingDirectory = path)
+            } else {
+                existing
+            }
         }
     }
 
     private fun displayProject(
         project: ProjectConfig?,
         sessions: Map<String, ProjectSessionState>,
+        tabId: String? = _state.value.activeTabId,
     ): ProjectConfig? = project?.let { configured ->
-        val session = sessions[configured.id]
+        val session = sessions[tabId]
         val cwd = session?.workingDirectory?.takeIf { it.startsWith("/") }
-        val branch = session?.gitBranch?.takeIf { it.isNotBlank() } ?: "—"
-        configured.copy(
-            name = "${configured.name} · branch · $branch",
-            remotePath = cwd ?: configured.remotePath,
-        )
+        configured.copy(remotePath = cwd ?: configured.remotePath)
     }
 
     private fun persistSession(projectId: String, session: ProjectSessionState) {
@@ -711,6 +1033,11 @@ class PocketDevViewModel(
         savedStateHandle[prefix + "running"] = session.command.running
         savedStateHandle[prefix + "stdout"] = session.command.stdout
         savedStateHandle[prefix + "stderr"] = session.command.stderr
+        savedStateHandle[prefix + "codexAction"] = session.command.codexAction
+        savedStateHandle[prefix + "codexNeedsInput"] = session.command.codexNeedsInput
+        savedStateHandle[prefix + "startedAtMs"] = session.command.startedAtMs
+        savedStateHandle[prefix + "lastActivityAtMs"] = session.command.lastActivityAtMs
+        savedStateHandle[prefix + "remoteLogPrefix"] = session.command.remoteLogPrefix
         savedStateHandle[prefix + "exitCode"] = session.command.exitCode
         savedStateHandle[prefix + "connectionError"] = session.command.connectionError
         savedStateHandle[prefix + "artifactRemote"] = session.artifact.remotePath
@@ -725,10 +1052,15 @@ class PocketDevViewModel(
         val wasRunning = savedStateHandle.get<Boolean>(prefix + "running") == true
         return ProjectSessionState(
             command = CommandUiState(
-                command = savedStateHandle.get<String>(prefix + "command") ?: "pwd",
+                command = savedStateHandle.get<String>(prefix + "command") ?: "",
                 running = false,
                 stdout = savedStateHandle.get<String>(prefix + "stdout").orEmpty(),
                 stderr = savedStateHandle.get<String>(prefix + "stderr").orEmpty(),
+                codexAction = savedStateHandle.get<String>(prefix + "codexAction"),
+                codexNeedsInput = savedStateHandle.get<Boolean>(prefix + "codexNeedsInput") == true,
+                startedAtMs = savedStateHandle.get<Long>(prefix + "startedAtMs"),
+                lastActivityAtMs = savedStateHandle.get<Long>(prefix + "lastActivityAtMs"),
+                remoteLogPrefix = savedStateHandle.get<String>(prefix + "remoteLogPrefix"),
                 exitCode = savedStateHandle.get<Int>(prefix + "exitCode"),
                 connectionError = if (wasRunning) {
                     "Command was interrupted because PocketDev was stopped while in the background. Run it again to continue."
@@ -754,21 +1086,52 @@ class PocketDevViewModel(
         listOf(
             "command", "running", "stdout", "stderr", "exitCode", "connectionError",
             "artifactRemote", "artifactLocal", "artifactError", "workingDirectory", "gitBranch",
+            "codexAction", "codexNeedsInput", "startedAtMs", "lastActivityAtMs", "remoteLogPrefix",
         ).forEach { key -> savedStateHandle.remove<Any>(prefix + key) }
+    }
+
+    private fun restoreTabs(projects: List<ProjectConfig>, activeProjectId: String?): WorkspaceTabSelection {
+        val ids = savedStateHandle.get<ArrayList<String>>("tabs.ids")
+        val projectIds = savedStateHandle.get<ArrayList<String>>("tabs.projects")
+        val validIds = projects.map { it.id }.toSet()
+        if (ids != null && projectIds != null && ids.size == projectIds.size &&
+            ids.distinct().size == ids.size && ids.all { it.isNotBlank() }) {
+            val names = savedStateHandle.get<ArrayList<String>>("tabs.titles")
+            val tabs = ids.zip(projectIds).mapIndexed { index, (id, projectId) ->
+                WorkspaceTab(id, projectId, names?.getOrNull(index)?.trim()?.take(60)?.ifBlank { null })
+            }.filter { it.projectId in validIds }
+            // An intentionally closed tab bar must remain empty after recreation.
+            val activeId = savedStateHandle.get<String>("tabs.active")
+                ?.takeIf { id -> tabs.any { it.id == id } } ?: tabs.firstOrNull()?.id
+            return WorkspaceTabSelection(tabs, activeId)
+        }
+        return WorkspaceTabSelection.fromProjects(projects, activeProjectId)
+    }
+
+    private fun persistTabs(tabs: WorkspaceTabSelection) {
+        savedStateHandle["tabs.ids"] = ArrayList(tabs.tabs.map { it.id })
+        savedStateHandle["tabs.projects"] = ArrayList(tabs.tabs.map { it.projectId })
+        savedStateHandle["tabs.titles"] = ArrayList(tabs.tabs.map { it.customTitle.orEmpty() })
+        savedStateHandle["tabs.active"] = tabs.activeTabId
     }
 
     private fun loadInitialState(): PocketDevState {
         val stored = repository.load()
         val projectCollection = projectRepository.load()
-        val sessions = projectCollection.projects.associate { project ->
-            project.id to restoreSession(project.id, project.remotePath)
+        val tabs = restoreTabs(projectCollection.projects, projectCollection.activeProjectId)
+        val sessions = tabs.tabs.associate { tab ->
+            val project = projectCollection.projects.first { it.id == tab.projectId }
+            tab.id to restoreSession(tab.id, project.remotePath)
         }
         return PocketDevState(
+            actionProfiles = actionProfileRepository.load(),
             profile = stored?.profile,
             hasStoredSecret = stored?.hasSecret == true,
             projects = projectCollection.projects,
-            project = displayProject(projectCollection.activeProject, sessions),
+            project = displayProject(projectCollection.projects.firstOrNull { it.id == tabs.activeTab?.projectId }, sessions, tabs.activeTabId),
             sessions = sessions,
+            tabSelection = tabs,
         )
     }
 }
+

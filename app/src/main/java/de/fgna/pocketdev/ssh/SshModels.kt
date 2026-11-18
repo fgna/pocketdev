@@ -6,6 +6,7 @@ data class SshProfile(
     val username: String,
     val hostKeySha256: String = "",
     val authMode: AuthMode = AuthMode.PASSWORD,
+    val loginShell: Boolean = true,
 )
 
 enum class AuthMode {
@@ -22,7 +23,7 @@ sealed interface CommandEvent {
     data object Connecting : CommandEvent
     data object Connected : CommandEvent
     data object SudoPasswordRequired : CommandEvent
-    data object SudoPasswordSubmitted : CommandEvent
+    data class SudoPasswordSubmitted(val generation: Long) : CommandEvent
     data class HostKeyTrustRequired(val fingerprint: String) : CommandEvent
     data class Output(val stream: OutputStreamKind, val text: String) : CommandEvent
     data class Completed(val exitCode: Int) : CommandEvent
@@ -37,6 +38,13 @@ data class CommandUiState(
     val exitCode: Int? = null,
     val connectionError: String? = null,
     val awaitingSudoPassword: Boolean = false,
+    val sudoPromptGeneration: Long = 0,
+    val codexAction: String? = null,
+    val codexNeedsInput: Boolean = false,
+    val startedAtMs: Long? = null,
+    val lastActivityAtMs: Long? = null,
+    val pendingCodexLine: String = "",
+    val remoteLogPrefix: String? = null,
 ) {
     val combinedOutput: String
         get() = buildString {
@@ -53,16 +61,49 @@ data class CommandUiState(
 
 object CommandStateReducer {
     fun reduce(current: CommandUiState, event: CommandEvent): CommandUiState = when (event) {
-        CommandEvent.Connecting -> current.copy(running = true, connectionError = null, awaitingSudoPassword = false)
+        CommandEvent.Connecting -> current.copy(running = true, connectionError = null, awaitingSudoPassword = false, sudoPromptGeneration = 0, startedAtMs = System.currentTimeMillis(), lastActivityAtMs = null, codexAction = if (CodexProgress.enabled(current.command)) "Connecting" else null, codexNeedsInput = false, pendingCodexLine = "", remoteLogPrefix = null)
         CommandEvent.Connected -> current.copy(running = true)
-        CommandEvent.SudoPasswordRequired -> current.copy(running = true, awaitingSudoPassword = true)
-        CommandEvent.SudoPasswordSubmitted -> current.copy(running = true, awaitingSudoPassword = false)
+        CommandEvent.SudoPasswordRequired -> current.copy(running = true, awaitingSudoPassword = true, sudoPromptGeneration = current.sudoPromptGeneration + 1)
+        is CommandEvent.SudoPasswordSubmitted -> if (event.generation == current.sudoPromptGeneration) current.copy(running = true, awaitingSudoPassword = false) else current
         is CommandEvent.HostKeyTrustRequired -> current.copy(running = false, awaitingSudoPassword = false)
-        is CommandEvent.Output -> when (event.stream) {
-            OutputStreamKind.STDOUT -> current.copy(stdout = current.stdout + event.text)
-            OutputStreamKind.STDERR -> current.copy(stderr = current.stderr + event.text)
-        }
-        is CommandEvent.Completed -> current.copy(running = false, exitCode = event.exitCode, awaitingSudoPassword = false)
+        is CommandEvent.Output -> appendOutput(current, event)
+        is CommandEvent.Completed -> current.copy(
+            running = false,
+            exitCode = event.exitCode,
+            awaitingSudoPassword = false,
+            stderr = if (event.exitCode == 127) current.stderr + "\nPocketDev hint: command not found. Check SSH profile > Login shell and the server PATH (~/.profile, ~/.local/bin).\n" else current.stderr,
+        )
         is CommandEvent.ConnectionFailed -> current.copy(running = false, connectionError = event.message, awaitingSudoPassword = false)
+    }
+    private const val MAX_VISIBLE_OUTPUT = 128 * 1024
+    private const val MAX_PENDING_LINE = 64 * 1024
+    private fun appendOutput(current: CommandUiState, event: CommandEvent.Output): CommandUiState {
+        val now = System.currentTimeMillis()
+        val prefix = "POCKETDEV_JOB_LOG:"
+        val text = event.text
+        val isCodex = CodexProgress.enabled(current.command)
+        // Generic SSH output retains its existing full-stream behavior.
+        // Only JSONL-heavy Codex jobs bound the visible output; complete logs remain remote.
+        fun visible(value: String) = if (isCodex) value.takeLast(MAX_VISIBLE_OUTPUT) else value
+        val updated = when (event.stream) {
+            OutputStreamKind.STDOUT -> current.copy(stdout = visible(current.stdout + text))
+            OutputStreamKind.STDERR -> current.copy(stderr = visible(current.stderr + text))
+        }.copy(lastActivityAtMs = now)
+        if (event.stream != OutputStreamKind.STDOUT || !isCodex) return updated
+        val merged = current.pendingCodexLine + text
+        val lines = merged.split('\n')
+        val complete = lines.dropLast(1)
+        val pending = lines.last().takeLast(MAX_PENDING_LINE)
+        var action = updated.codexAction
+        var input = updated.codexNeedsInput
+        var log = updated.remoteLogPrefix
+        complete.forEach { line ->
+            if (line.startsWith(prefix)) log = line.removePrefix(prefix).trim()
+            CodexProgress.parse(line.trim())?.let { update ->
+                action = update.action
+                input = update.needsInput
+            }
+        }
+        return updated.copy(codexAction = action, codexNeedsInput = input, pendingCodexLine = pending, remoteLogPrefix = log)
     }
 }

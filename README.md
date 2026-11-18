@@ -24,7 +24,9 @@ PocketDev 1.x is functionally complete for its intended core workflow and is mai
 - multiple saved remote projects and fast project switching;
 - remembered working directory and current Git branch display;
 - predefined Pull / Test / Build actions plus arbitrary multi-line commands;
+- reusable Android, Docker Compose and custom action profiles with editable, sortable project buttons;
 - streaming stdout/stderr, exit status, Copy, Stop/Ctrl-C and interactive sudo handling;
+- an Input dialog for replies to running commands, with optional hidden input;
 - persistent remote `ssh-agent` support for GitHub SSH keys;
 - automatic project bootstrap for missing remote folders;
 - SHA-256-verified APK retrieval and Android package installation;
@@ -39,6 +41,12 @@ PocketDev 1.x is functionally complete for its intended core workflow and is mai
 - Android device or emulator for installation/device testing
 
 The Gradle wrapper is checked into the repository, so no global Gradle installation is required.
+
+## Command shell environment
+
+Command fields, favorites and project actions start a fresh SSH session for each command. The SSH profile's **Login shell** option is enabled by default and runs each command through `bash -lc`, loading login environment configuration (typically `~/.profile`) and allowing tools in `~/.local/bin` to be found on later commands. Updating `PATH` with `source ~/.bashrc` in a single command does not persist to the next command. Put permanent PATH exports in `~/.profile` or another login-shell startup file. On Ubuntu, `.bashrc` may return immediately in non-interactive shells.
+
+Disable **Login shell** in the SSH profile to use the previous non-login execution behavior. The PTY terminal is an interactive shell and may load a different set of startup files. An exit code of 127 displays a PATH diagnostic hint. Login shells use Bash and require `bash` on the remote host.
 
 ## Build and test
 
@@ -106,6 +114,9 @@ PocketDev assumes the SSH server is infrastructure you already control. It is no
 - `docs/apk-signing.md` — APK signing notes.
 - `docs/fdroid.md` — F-Droid readiness and submission workflow.
 - `docs/git-key-agent.md` — persistent Git SSH-agent behavior.
+- [Action profiles](docs/action-profiles.md) — configure, reuse and customize project buttons.
+- [Command input](docs/command-input.md) — replies to running commands and device acceptance checks.
+- [Codex CLI from PocketDev](docs/codex-remote-tmux.md) — tmux-backed remote agent runs that survive mobile SSH disconnects.
 - `docs/user-testing-apk-installer.md` — APK installer test notes.
 
 ## License

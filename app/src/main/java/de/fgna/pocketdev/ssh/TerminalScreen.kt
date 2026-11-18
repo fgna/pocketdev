@@ -1,0 +1,148 @@
+package de.fgna.pocketdev.ssh
+
+/**
+ * Bounded VT100-style screen for interactive SSH PTYs. Handles the display primitives
+ * used by common terminal CLIs; unsupported controls are ignored instead of displayed.
+ * Pure Kotlin, so rendering can be independently tested without an Android device.
+ */
+class TerminalScreen(columns: Int = 80, rows: Int = 24) {
+    private var columns = columns
+    private var rows = rows
+    init { require(columns in 20..500 && rows in 5..300) }
+    private var cells = Array(rows) { CharArray(columns) { ' ' } }
+    private var savedMain: Array<CharArray>? = null
+    private var row = 0
+    private var col = 0
+    private var savedRow = 0
+    private var savedCol = 0
+    private val control = StringBuilder()
+    private var mode = 0 // 0 normal, 1 ESC, 2 CSI, 3 OSC, 4 OSC escape
+    private var pendingCR = false
+    // VT autowrap is delayed until the *next* printable character.
+    private var wrapPending = false
+
+    @Synchronized fun accept(chunk: String): String {
+        for (ch in chunk) {
+            when (mode) {
+                0 -> when (ch) {
+                    '\u001b' -> mode = 1
+                    '\r' -> { col = 0; pendingCR = true; wrapPending = false }
+                    '\n' -> { if (!pendingCR) col = 0; newline(); pendingCR = false; wrapPending = false }
+                    '\b' -> { col = (col - 1).coerceAtLeast(0); pendingCR = false; wrapPending = false }
+                    '\t' -> { col = ((col / 8 + 1) * 8).coerceAtMost(columns - 1); pendingCR = false; wrapPending = false }
+                    else -> if (ch >= ' ') {
+                        pendingCR = false
+                        if (wrapPending) {
+                            col = 0
+                            newline()
+                            wrapPending = false
+                        }
+                        cells[row][col] = ch
+                        if (col == columns - 1) wrapPending = true else col++
+                    }
+                }
+                1 -> {
+                    mode = 0
+                    when (ch) {
+                        '[' -> { mode = 2; control.clear() }
+                        ']' -> { mode = 3; control.clear() }
+                        '7' -> { savedRow = row; savedCol = col }
+                        '8' -> { row = savedRow; col = savedCol; wrapPending = false }
+                        'D' -> { newline(); wrapPending = false }
+                        'M' -> { row = (row - 1).coerceAtLeast(0); wrapPending = false }
+                        'c' -> clear()
+                    }
+                }
+                2 -> {
+                    if (ch in '@'..'~') { csi(ch, control.toString()); mode = 0; control.clear() }
+                    else if (control.length < 80) control.append(ch)
+                    else mode = 0
+                }
+                3 -> when (ch) {
+                    '\u0007' -> mode = 0
+                    '\u001b' -> mode = 4
+                    else -> if (control.length < 256) control.append(ch) else mode = 0
+                }
+                4 -> mode = if (ch == '\\') 0 else 3
+            }
+        }
+        return render()
+    }
+
+    @Synchronized fun resize(newColumns: Int, newRows: Int): String {
+        require(newColumns in 20..500 && newRows in 5..300)
+        if (newColumns == columns && newRows == rows) return render()
+
+        cells = resizeBuffer(cells, newColumns, newRows)
+        savedMain = savedMain?.let { resizeBuffer(it, newColumns, newRows) }
+        columns = newColumns
+        rows = newRows
+        row = row.coerceAtMost(rows - 1)
+        col = col.coerceAtMost(columns - 1)
+        savedRow = savedRow.coerceAtMost(rows - 1)
+        savedCol = savedCol.coerceAtMost(columns - 1)
+        wrapPending = false
+        return render()
+    }
+
+    private fun resizeBuffer(
+        source: Array<CharArray>,
+        newColumns: Int,
+        newRows: Int,
+    ): Array<CharArray> = Array(newRows) { sourceRow ->
+        CharArray(newColumns) { sourceColumn ->
+            source.getOrNull(sourceRow)?.getOrNull(sourceColumn) ?: ' '
+        }
+    }
+
+    private fun newline() {
+        if (row < rows - 1) row++
+        else {
+            for (r in 0 until rows - 1) cells[r] = cells[r + 1]
+            cells[rows - 1] = CharArray(columns) { ' ' }
+        }
+    }
+
+    private fun clear() { cells = Array(rows) { CharArray(columns) { ' ' } }; row = 0; col = 0; wrapPending = false }
+
+    private fun csi(command: Char, params: String) {
+        // Only implemented cursor positioning and editing commands cancel autowrap.
+        // Queries, unknown CSI codes, SGR and private mode toggles leave it intact.
+        if (command in charArrayOf('A', 'B', 'C', 'D', 'G', 'H', 'f', 'J', 'K', 's', 'u')) {
+            wrapPending = false
+        }
+        val private = params.startsWith("?")
+        val values = params.removePrefix("?").split(';').map { it.toIntOrNull() ?: 0 }
+        fun count() = (values.firstOrNull() ?: 0).coerceAtLeast(1)
+        when (command) {
+            'A' -> row = (row - count()).coerceAtLeast(0)
+            'B' -> row = (row + count()).coerceAtMost(rows - 1)
+            'C' -> col = (col + count()).coerceAtMost(columns - 1)
+            'D' -> col = (col - count()).coerceAtLeast(0)
+            'G' -> col = (count() - 1).coerceIn(0, columns - 1)
+            'H', 'f' -> {
+                row = ((values.getOrNull(0) ?: 1).coerceAtLeast(1) - 1).coerceAtMost(rows - 1)
+                col = ((values.getOrNull(1) ?: 1).coerceAtLeast(1) - 1).coerceAtMost(columns - 1)
+            }
+            'J' -> when (values.firstOrNull() ?: 0) {
+                0 -> { for (c in col until columns) cells[row][c] = ' '; for (r in row + 1 until rows) cells[r].fill(' ') }
+                1 -> { for (r in 0 until row) cells[r].fill(' '); for (c in 0..col) cells[row][c] = ' ' }
+                2, 3 -> cells.forEach { it.fill(' ') }
+            }
+            'K' -> when (values.firstOrNull() ?: 0) {
+                0 -> for (c in col until columns) cells[row][c] = ' '
+                1 -> for (c in 0..col) cells[row][c] = ' '
+                2 -> cells[row].fill(' ')
+            }
+            's' -> { savedRow = row; savedCol = col }
+            'u' -> { row = savedRow; col = savedCol }
+            'm' -> Unit // SGR colors are intentionally omitted from plain-text rendering.
+            'h', 'l' -> if (private && values.contains(1049)) {
+                if (command == 'h' && savedMain == null) { savedMain = cells; clear() }
+                if (command == 'l' && savedMain != null) { cells = savedMain!!; savedMain = null; row = 0; col = 0 }
+            }
+        }
+    }
+
+    @Synchronized fun render(): String = cells.joinToString("\n") { String(it).trimEnd() }.trimEnd()
+}
