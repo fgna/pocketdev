@@ -51,6 +51,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
@@ -70,6 +71,7 @@ import de.fgna.pocketdev.project.ProjectCommandBuilder
 import de.fgna.pocketdev.project.ProjectConfig
 import de.fgna.pocketdev.project.WorkspaceTabSelection
 import de.fgna.pocketdev.project.WorkspaceTabs
+import de.fgna.pocketdev.ssh.LocalPortForwardState
 import de.fgna.pocketdev.ssh.AuthMode
 import de.fgna.pocketdev.ui.PocketDevCompactMeta
 import de.fgna.pocketdev.ui.PocketDevContextStrip
@@ -97,6 +99,8 @@ fun PocketDevApp(
     val context = LocalContext.current
     var issueDraft by remember { mutableStateOf<DiagnosticIssueDraft?>(null) }
     var projectSwitcherOpen by remember { mutableStateOf(false) }
+    var tunnelOpen by rememberSaveable { mutableStateOf(false) }
+    val tunnelState by LocalPortForwardRuntime.state.collectAsState()
     var pendingRunTabId by remember { mutableStateOf<String?>(null) }
 
     val nearbyPermissionLauncher = rememberLauncherForActivityResult(
@@ -129,6 +133,8 @@ fun PocketDevApp(
             PocketDevHome(
                 state = state,
                 onConfigure = vm::openEditor,
+                onTunnel = { tunnelOpen = true },
+                tunnelState = tunnelState,
                 onProjects = { projectSwitcherOpen = true },
                 onFiles = onFiles,
                 onTerminal = onTerminal,
@@ -159,6 +165,10 @@ fun PocketDevApp(
                     }
                 },
             )
+        }
+
+        if (tunnelOpen) {
+            LocalPortForwardDialog(state.profile, state.hasStoredSecret, tunnelState) { tunnelOpen = false }
         }
 
         if (state.editorOpen) {
@@ -295,6 +305,8 @@ fun PocketDevApp(
 private fun PocketDevHome(
     state: PocketDevState,
     onConfigure: () -> Unit,
+    onTunnel: () -> Unit,
+    tunnelState: LocalPortForwardState,
     onProjects: () -> Unit,
     onFiles: (() -> Unit)?,
     onTerminal: (() -> Unit)?,
@@ -398,6 +410,15 @@ private fun PocketDevHome(
                                 DropdownMenuItem(
                                     text = { Text("Projects") },
                                     onClick = { navigationMenuOpen = false; onProjects() },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("SSH tunnel · " + when (tunnelState) {
+                                        is LocalPortForwardState.Starting -> "Starting"
+                                        is LocalPortForwardState.Active -> "Active"
+                                        is LocalPortForwardState.Failed -> "Failed / stopped"
+                                        else -> "Stopped"
+                                    }) },
+                                    onClick = { navigationMenuOpen = false; onTunnel() },
                                 )
                                 if (onFiles != null) {
                                     DropdownMenuItem(

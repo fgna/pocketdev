@@ -33,6 +33,11 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <service
+            android:name=".LocalPortForwardService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <receiver
             android:name=".artifact.ApkInstallResultReceiver"
             android:exported="false" />

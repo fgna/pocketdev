@@ -174,6 +174,7 @@ class PocketDevViewModel(
             authMode = editor.authMode,
             loginShell = editor.loginShell,
         )
+        LocalPortForwardService.stop(getApplication())
         repository.save(profile, editor.secret.ifBlank { null })
         updateState {
             it.copy(

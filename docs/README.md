@@ -8,6 +8,7 @@ Current repository and product guidance:
 - `apk-signing.md` — APK signing notes.
 - `git-key-agent.md` — persistent remote Git SSH-agent behavior.
 - [Action profiles](action-profiles.md) — Docker/Android/custom project buttons and device acceptance.
+- [SSH browser authentication](ssh-browser-auth.md) — local TCP forwarding, Codex login and hardware acceptance.
 - [Codex over PocketDev SSH](codex-remote-tmux.md) — persistent tmux runs, logs, recovery and safe continuation.
 - `user-testing-apk-installer.md` — APK installer validation notes.
 

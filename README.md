@@ -28,6 +28,7 @@ PocketDev 1.x is functionally complete for its intended core workflow and is mai
 - streaming stdout/stderr, exit status, Copy, Stop/Ctrl-C and interactive sudo handling;
 - an Input dialog for replies to running commands, with optional hidden input;
 - persistent remote `ssh-agent` support for GitHub SSH keys;
+- opt-in loopback-only SSH TCP forwarding for remote CLI browser authentication;
 - automatic project bootstrap for missing remote folders;
 - SHA-256-verified APK retrieval and Android package installation;
 - retry and foreground keep-alive protection for APK/file transfers;
@@ -115,6 +116,7 @@ PocketDev assumes the SSH server is infrastructure you already control. It is no
 - `docs/fdroid.md` — F-Droid readiness and submission workflow.
 - `docs/git-key-agent.md` — persistent Git SSH-agent behavior.
 - [Action profiles](docs/action-profiles.md) — configure, reuse and customize project buttons.
+- [SSH browser authentication](docs/ssh-browser-auth.md) — tunnel controls, Codex login and physical-device acceptance.
 - [Command input](docs/command-input.md) — replies to running commands and device acceptance checks.
 - [Codex CLI from PocketDev](docs/codex-remote-tmux.md) — tmux-backed remote agent runs that survive mobile SSH disconnects.
 - `docs/user-testing-apk-installer.md` — APK installer test notes.

@@ -25,6 +25,10 @@ sealed interface LocalPortForwardState {
 }
 
 enum class LocalPortForwardFailure {
+    SSH_HOST_UNVERIFIED,
+    SSH_CREDENTIALS_MISSING,
+    BACKGROUND_UNAVAILABLE,
+    BACKGROUND_STOPPED,
     LOCAL_PORT_UNAVAILABLE,
     SSH_CONNECTION_FAILED,
     SSH_DISCONNECTED,
@@ -47,7 +51,7 @@ sealed interface LocalPortForwardEvent {
 }
 
 /**
- * Pure, idempotent lifecycle reducer. Resource ownership stays in the future
+ * Pure, idempotent lifecycle reducer. Resource ownership stays in the
  * tunnel-session implementation; this contract prevents UI/service layers from
  * inventing impossible active states.
  */
