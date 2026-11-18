@@ -16,6 +16,8 @@ data class LocalPortForwardConfig(
         require(localPort in VALID_PORTS) { "Local port must be in 1..65535" }
         require(remotePort in VALID_PORTS) { "Remote port must be in 1..65535" }
         require(remoteHost.isNotBlank()) { "Remote host must not be blank" }
+        require(remoteHost.none { it.isWhitespace() || it.isISOControl() } &&
+            remoteHost.none { it in "/?#@" }) { "Remote host must be a hostname or IP address, not a URL" }
         require(remoteHost == remoteHost.trim()) {
             "Remote host must not contain leading or trailing whitespace"
         }
