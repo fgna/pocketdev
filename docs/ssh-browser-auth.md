@@ -14,6 +14,10 @@ and tunnels share connection/authentication code. Each command already has its
 own SSH connection; the tunnel owns another connection to the same profile so a
 command completing or being stopped does not retire the tunnel. Private keys
 are loaded directly into SSHJ memory, without a temporary/exported key file.
+The tunnel bounds TCP connection setup to 15 seconds and leaves socket reads
+unbounded. SSHJ sends response-checked keepalives every 15 seconds and disconnects
+after five unanswered requests. A healthy idle connection can remain active
+through a multi-minute browser sign-in; a read timeout does not detect a dead peer.
 
 A dedicated foreground service starts from **Start tunnel** while PocketDev is
 visible. Its notification shows Starting/Active and **Stop tunnel**; that action
@@ -69,6 +73,10 @@ server must permit `direct-tcpip` local forwarding (`AllowTcpForwarding` and any
 
 ## Additional hardware acceptance
 
+- Leave a healthy tunnel active for at least five minutes without browser callback
+  or forwarded application traffic, keeping the browser foregrounded. Confirm it
+  remains **Active** with its notification, then complete the Codex sign-in and
+  confirm `codex login status` on the server. Record the idle duration and result.
 - Rotate the phone while the tunnel is active, dismiss/reopen the controls, switch
   projects, then open the browser and briefly turn the screen off. Confirm the
   tunnel and its foreground notification remain active and the callback works.
@@ -89,6 +97,10 @@ server must permit `direct-tcpip` local forwarding (`AllowTcpForwarding` and any
 - Run an ordinary streaming command and a Files transfer with the tunnel active.
   Stopping the tunnel must preserve both; stopping commands must preserve the
   tunnel. Repeat APK retrieval and verify the existing SHA-256/install flow.
+- Using a saved private-key profile with an OpenSSH-format key (`BEGIN OPENSSH
+  PRIVATE KEY`), run an ordinary command such as `printf 'key-auth-ok\n'`. Confirm
+  authentication, streamed output and exit status 0 both with the tunnel stopped
+  and active. Do not include the key or credentials in acceptance evidence.
 
 These checks require Android hardware and a real SSH host; JVM tests do not prove
 browser/Android lifecycle acceptance. Carry pending physical checks and eventual
@@ -100,17 +112,25 @@ after the coordinator's engineering gates and review pass.
 `./gradlew test` includes `Issue89LocalPortForwardTest`: configuration validation,
 real loopback binding/collision, byte handoff to the transport seam, connection and
 listener failures, idle disconnect, stop during connect, idempotent cleanup,
-background shutdown, repeated starts on the same port, pre-connect keepalive
-configuration, and shared password/in-memory-key authentication with unpinned-host
-rejection. Its issue-scoped Python
+background shutdown, repeated starts on the same port, the real SSHJ socket's
+read/connect timeout policy and pre-connect response-checked keepalive settings,
+and shared password/in-memory-key authentication (including OpenSSH format) with
+unpinned-host rejection. Its issue-scoped Python
 entry point is `python3 -m unittest discover -s tests -p 'test_issue_89_*.py'`.
 Existing command and file-transfer regressions remain in the normal Gradle suite.
-The tests use a fake SSH transport; real SSH forwarding and host-key mismatch
-checks are included in hardware acceptance above.
+Lifecycle tests use a fake SSH transport. The timeout regression exercises the
+production tunnel setup and SSHJ's socket initialization with an instrumented
+socket, stopping before an SSH handshake. Healthy multi-minute idling, real SSH
+forwarding and host-key mismatch checks remain in hardware acceptance above.
 
 - [SSHJ 0.40.0 LocalPortForwarder](https://github.com/hierynomus/sshj/blob/v0.40.0/src/main/java/net/schmizz/sshj/connection/channel/direct/LocalPortForwarder.java):
   blocking listener over `direct-tcpip`; socket close plus listener interruption,
   and closing the owned SSH connection retires forwarding channels.
 - [SSHJ in-memory key loading](https://github.com/hierynomus/sshj/blob/v0.40.0/src/main/java/net/schmizz/sshj/SSHClient.java).
+- [SSHJ socket timeout initialization](https://github.com/hierynomus/sshj/blob/v0.40.0/src/main/java/net/schmizz/sshj/SocketClient.java)
+  and [response-checked keepalives](https://github.com/hierynomus/sshj/blob/v0.40.0/src/main/java/net/schmizz/keepalive/KeepAliveRunner.java).
+  In 0.40.0 the [transport Reader](https://github.com/hierynomus/sshj/blob/v0.40.0/src/main/java/net/schmizz/sshj/transport/Reader.java)
+  retries socket read timeouts unless interrupted; the timeout policy above avoids
+  unnecessary read timeouts and leaves dead-peer detection to keepalives.
 - [Android foreground service types](https://developer.android.com/develop/background-work/services/fgs/service-types)
   and [timeouts](https://developer.android.com/develop/background-work/services/fgs/timeout).

@@ -17,13 +17,14 @@ internal object SshConnectionFactory {
         onClient: (SSHClient) -> Unit = {},
         onDiscoveredFingerprint: (String) -> Unit = {},
         keepAlive: Boolean = false,
+        clientFactory: () -> SSHClient = { createClient(keepAlive) },
     ): SSHClient {
         val targets = InetAddress.getAllByName(profile.host).toList()
             .sortedByDescending { it is Inet4Address }.mapNotNull { it.hostAddress }.distinct()
             .ifEmpty { listOf(profile.host) }
         val failures = mutableListOf<String>()
         for (target in targets) {
-            val candidate = createClient(keepAlive)
+            val candidate = clientFactory()
             try {
                 // Register ownership before any blocking network operation, including connect.
                 onClient(candidate)

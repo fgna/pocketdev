@@ -5,7 +5,9 @@ import net.schmizz.sshj.connection.channel.direct.Parameters
 import java.net.ServerSocket
 
 /** Uses the same pinned host and in-memory authentication path as ordinary commands. */
-internal class SshjLocalForwardTransport : LocalForwardTransport {
+internal class SshjLocalForwardTransport(
+    private val clientFactory: () -> SSHClient = { SshConnectionFactory.createClient(keepAlive = true) },
+) : LocalForwardTransport {
     private val lock = Any()
     @Volatile private var closed = false
     @Volatile private var client: SSHClient? = null
@@ -16,10 +18,11 @@ internal class SshjLocalForwardTransport : LocalForwardTransport {
             synchronized(lock) {
                 check(!closed) { "Tunnel stopped" }
                 candidate.connectTimeout = 15_000
-                candidate.timeout = 15_000
+                // Keep socket reads unbounded; response-checked keepalives detect a dead peer.
+                candidate.timeout = 0
                 client = candidate
             }
-        })
+        }, clientFactory = clientFactory)
         if (closed) {
             runCatching { ssh.disconnect() }
             runCatching { ssh.close() }

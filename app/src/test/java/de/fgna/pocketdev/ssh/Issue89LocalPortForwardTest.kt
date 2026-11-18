@@ -2,13 +2,17 @@ package de.fgna.pocketdev.ssh
 
 import org.junit.Assert.*
 import org.junit.Test
+import java.io.IOException
+import java.io.InputStream
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import javax.net.SocketFactory
 
 /** Real loopback sockets, deterministic transport failures; no Android device or SSH secrets. */
 class Issue89LocalPortForwardTest {
@@ -296,10 +300,55 @@ class Issue89LocalPortForwardTest {
         SshConnectionFactory.createClient(keepAlive = true).use {
             assertEquals(15, it.connection.keepAlive.keepAliveInterval)
             assertTrue(it.connection.keepAlive is net.schmizz.keepalive.KeepAliveRunner)
+            assertEquals(5, (it.connection.keepAlive as net.schmizz.keepalive.KeepAliveRunner).maxAliveCount)
         }
         SshConnectionFactory.createClient().use {
             assertEquals(0, it.connection.keepAlive.keepAliveInterval)
         }
+    }
+
+    private class SetupSocket : Socket() {
+        var connectionTimeout: Int? = null
+        var readTimeout: Int? = null
+        override fun connect(endpoint: SocketAddress, timeout: Int) {
+            connectionTimeout = timeout
+        }
+        override fun setSoTimeout(timeout: Int) {
+            super.setSoTimeout(timeout)
+            readTimeout = timeout
+        }
+        override fun getInputStream(): InputStream = throw IOException("Stop before SSH handshake")
+    }
+
+    @Test fun tunnelSocketReadsStayUnboundedWhileKeepaliveOwnsDeadPeerDetection() {
+        val socket = SetupSocket()
+        SshConnectionFactory.createClient(keepAlive = true).use { client ->
+            client.socketFactory = object : SocketFactory() {
+                override fun createSocket(): Socket = socket
+                override fun createSocket(host: String, port: Int): Socket = error("Unexpected socket overload")
+                override fun createSocket(host: InetAddress, port: Int): Socket = error("Unexpected socket overload")
+                override fun createSocket(host: String, port: Int, local: InetAddress, localPort: Int): Socket =
+                    error("Unexpected socket overload")
+                override fun createSocket(host: InetAddress, port: Int, local: InetAddress, localPort: Int): Socket =
+                    error("Unexpected socket overload")
+            }
+            SshjLocalForwardTransport(clientFactory = { client }).use { transport ->
+                // Run the production onClient callback and real SocketClient.onConnect, which
+                // applies SO_TIMEOUT. Abort before key exchange; no SSH host or timing sleeps.
+                assertThrows(IllegalStateException::class.java) {
+                    transport.connect(profile.copy(
+                        host = "127.0.0.1",
+                        hostKeySha256 = "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                    ), "protected-secret")
+                }
+                assertEquals(15_000, socket.connectionTimeout)
+                assertEquals("Tunnel idling must not depend on socket read timeouts", 0, socket.readTimeout)
+                val keepAlive = client.connection.keepAlive as net.schmizz.keepalive.KeepAliveRunner
+                assertEquals(15, keepAlive.keepAliveInterval)
+                assertEquals(5, keepAlive.maxAliveCount)
+            }
+        }
+        assertTrue(socket.isClosed)
     }
 
     private class AuthClient : net.schmizz.sshj.SSHClient() {
@@ -329,6 +378,17 @@ class Issue89LocalPortForwardTest {
             val key = java.security.KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
             val encoded = java.util.Base64.getMimeEncoder(64, byteArrayOf(10)).encodeToString(key.private.encoded)
             val pem = "-----BEGIN PRIVATE KEY-----\n" + encoded + "\n-----END PRIVATE KEY-----\n"
+            SshConnectionFactory.authenticate(client, profile.copy(authMode = AuthMode.PRIVATE_KEY), pem)
+            assertEquals(1, client.keys)
+        }
+    }
+
+    @Test fun sharedCommandAuthenticationParsesOpenSshPrivateKeyFromMemory() {
+        // Synthetic test-only key; never used for a server or any real account.
+        val pem = checkNotNull(javaClass.getResourceAsStream("/issue89-test-only-openssh.key"))
+            .bufferedReader().use { it.readText() }
+        assertTrue(pem.startsWith("-----BEGIN OPENSSH PRIVATE KEY-----"))
+        AuthClient().use { client ->
             SshConnectionFactory.authenticate(client, profile.copy(authMode = AuthMode.PRIVATE_KEY), pem)
             assertEquals(1, client.keys)
         }
