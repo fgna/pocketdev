@@ -67,7 +67,7 @@ object CommandStateReducer {
         CommandEvent.Connected -> current.copy(running = true)
         CommandEvent.SudoPasswordRequired -> current.copy(running = true, awaitingSudoPassword = true, sudoPromptGeneration = current.sudoPromptGeneration + 1)
         is CommandEvent.SudoPasswordSubmitted -> if (event.generation == current.sudoPromptGeneration) current.copy(running = true, awaitingSudoPassword = false) else current
-        is CommandEvent.HostKeyTrustRequired -> current.copy(running = false, awaitingSudoPassword = false)
+        is CommandEvent.HostKeyTrustRequired -> current.copy(running = false, awaitingSudoPassword = false, inputPrompt = null)
         is CommandEvent.Output -> appendOutput(current, event)
         is CommandEvent.Completed -> current.copy(
             running = false,
@@ -92,11 +92,15 @@ object CommandStateReducer {
             OutputStreamKind.STDOUT -> current.copy(stdout = visible(current.stdout + text))
             OutputStreamKind.STDERR -> current.copy(stderr = visible(current.stderr + text))
         }.copy(lastActivityAtMs = now)
+        val previousStream = when (event.stream) {
+            OutputStreamKind.STDOUT -> current.stdout
+            OutputStreamKind.STDERR -> current.stderr
+        }
         val prompt = if (current.running && !current.awaitingSudoPassword) InputPromptDetector.detect(when (event.stream) {
             OutputStreamKind.STDOUT -> updated.stdout
             OutputStreamKind.STDERR -> updated.stderr
         }) else null
-        val prompted = if (prompt != null && (prompt != current.inputPrompt || !current.running)) {
+        val prompted = if (prompt != null && (prompt != current.inputPrompt || previousStream.endsWith("\n"))) {
             updated.copy(inputPrompt = prompt, inputPromptGeneration = current.inputPromptGeneration + 1)
         } else updated
         if (event.stream != OutputStreamKind.STDOUT || !isCodex) return prompted
