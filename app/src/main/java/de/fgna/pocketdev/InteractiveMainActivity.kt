@@ -243,7 +243,8 @@ private fun UnifiedInputDialog(
     var reply by remember(sudo) { mutableStateOf("") }
     var passwordVisible by remember(sudo) { mutableStateOf(false) }
     // Sudo credentials are masked by default. Generic command input can also be masked.
-    var sensitive by remember(sudo) { mutableStateOf(sudo) }
+    val secretPrompt = sudo || promptText?.let { it.contains("password", ignoreCase = true) || it.contains("passphrase", ignoreCase = true) } == true
+    var sensitive by remember(sudo, secretPrompt) { mutableStateOf(secretPrompt) }
     val masked = sensitive && !passwordVisible
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
