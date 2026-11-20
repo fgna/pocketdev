@@ -7,7 +7,7 @@ package de.fgna.pocketdev.ssh
  */
 internal object InputPromptDetector {
     private val prompt = Regex(
-        """(?i)^(?:enter(?:\\s+|$)|please\\s+(?:enter|type|provide)\\s+|name\\b|reply\\b|input\\b|password\\b|passphrase\\b|username\\b|verification\\s+code\\b)[^\\r\\n]{0,96}[:?]\\s?$"""
+        """(?i)^(?:enter(?:\s+|$)|please\s+(?:enter|type|provide)\s+|name\b|reply\b|input\b|password\b|passphrase\b|username\b|verification\s+code\b)[^\r\n]{0,96}[:?]\s?$"""
     )
 
     fun detect(output: String): String? {
