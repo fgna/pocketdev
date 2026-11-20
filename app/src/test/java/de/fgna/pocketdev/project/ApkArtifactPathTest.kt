@@ -5,6 +5,21 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class ApkArtifactPathTest {
+    @Test fun multipleCandidatesExposeAllSafePathsForSelection() {
+        val candidates = listOf(
+            "./app/build/outputs/apk/debug/app-debug.apk",
+            "./saugi/build/outputs/apk/debug/saugi-debug.apk",
+        )
+        val failure = assertThrows(MultipleApkCandidatesException::class.java) {
+            ApkArtifactPath.select("", candidates)
+        }
+        assertEquals(
+            listOf("app/build/outputs/apk/debug/app-debug.apk", "saugi/build/outputs/apk/debug/saugi-debug.apk"),
+            failure.candidates,
+        )
+    }
+
+
     @Test fun explicitPathWinsRegardlessOfCandidateTimesOrVariant() {
         val configured = "android/app/build/outputs/apk/debug/app-debug.apk"
         assertEquals(configured, ApkArtifactPath.select(configured, listOf(
@@ -23,11 +38,16 @@ class ApkArtifactPathTest {
             "./android/app/build/outputs/apk/release/app-release.apk",
             "./android/app/build/outputs/apk/debug/app-debug.apk",
         )
-        val error = assertThrows(IllegalArgumentException::class.java) {
+        val error = assertThrows(MultipleApkCandidatesException::class.java) {
             ApkArtifactPath.select("", candidates)
         }
-        assert(error.message!!.contains("Multiple APKs"))
-        assert(error.message!!.contains("Edit project"))
+        assertEquals(
+            listOf(
+                "android/app/build/outputs/apk/debug/app-debug.apk",
+                "android/app/build/outputs/apk/release/app-release.apk",
+            ),
+            error.candidates,
+        )
     }
 
     @Test fun noArtifactGivesActionableError() {
