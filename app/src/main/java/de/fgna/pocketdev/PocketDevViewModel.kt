@@ -526,7 +526,8 @@ class PocketDevViewModel(
         val state = _state.value
         val tabId = state.pendingApkTabId ?: return
         if (tabId != state.activeTabId || path !in state.pendingApkChoices) return
-        val project = state.project ?: return
+        val activeProjectId = state.tabSelection.activeTab?.projectId ?: return
+        val project = state.projects.firstOrNull { it.id == activeProjectId } ?: return
         ApkArtifactPath.validateOptional(path)
         val collection = projectRepository.upsert(project.copy(apkPath = path), makeActive = false)
         updateState {
