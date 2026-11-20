@@ -4,6 +4,10 @@ package de.fgna.pocketdev.project
  * Project-owned APK path. Empty means discovery may be used only if unambiguous.
  * Absolute paths, shell metacharacters, traversal and non-APK files are never accepted.
  */
+class MultipleApkCandidatesException(val candidates: List<String>) : IllegalArgumentException(
+    "Multiple APKs found. Choose the APK to download."
+)
+
 object ApkArtifactPath {
     fun validateOptional(value: String) {
         if (value.isBlank()) return
@@ -20,10 +24,8 @@ object ApkArtifactPath {
         if (configured.isNotBlank()) return configured
         val available = candidates.map { it.removePrefix("./") }.filter { it.isNotBlank() }.distinct().sorted()
         require(available.isNotEmpty()) { "No APK found under build/outputs/apk. Run Build first or configure an APK path." }
-        require(available.size == 1) {
-            "Multiple APKs found: ${available.take(6).joinToString(", ")}. " +
-                "Set APK path in Edit project to select one explicitly."
-        }
+        available.forEach(::validateOptional)
+        if (available.size > 1) throw MultipleApkCandidatesException(available)
         validateOptional(available.single())
         return available.single()
     }
