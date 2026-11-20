@@ -9,10 +9,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -143,29 +141,20 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
             )
 
             if (command.running) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .navigationBarsPadding()
-                        .padding(end = 16.dp, bottom = 104.dp),
-                ) {
-                    Button(onClick = {
-                        promptedText = null
-                        inputTarget = vm.captureCommandInput(activeTabId)
-                        if (inputTarget == null) {
-                            Toast.makeText(context, "Command input is not available yet.", Toast.LENGTH_SHORT).show()
-                        }
-                    }) { Text("Input") }
-                    Button(onClick = {
+                Button(
+                    onClick = {
                         scope.launch {
                             val stopped = cancelActiveCommand()
                             if (!stopped) {
                                 Toast.makeText(context, "Active remote command was not found.", Toast.LENGTH_SHORT).show()
                             }
                         }
-                    }) { Text("Stop · Ctrl-C") }
-                }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .navigationBarsPadding()
+                        .padding(end = 16.dp, bottom = 104.dp),
+                ) { Text("Stop · Ctrl-C") }
             }
         }
     }
@@ -186,8 +175,8 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
             }
         }
     }
-    // Automatic sudo prompts take precedence over an already open manual input dialog.
-    // Preserve the manual dialog across normal output/status recompositions.
+    // Automatic sudo prompts take precedence over a detected command input prompt.
+    // Preserve the input dialog across normal output/status recompositions.
     if (command.running && command.awaitingSudoPassword) {
         key(activeTabId, "sudo") {
             UnifiedInputDialog(
