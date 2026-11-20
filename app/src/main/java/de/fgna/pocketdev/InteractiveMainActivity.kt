@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -89,6 +91,7 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     val command = state.command
     val activeTabId = state.activeTabId.orEmpty()
     var inputTarget by remember(activeTabId) { mutableStateOf<CommandInputHandle?>(null) }
+    var promptedText by remember(activeTabId) { mutableStateOf<String?>(null) }
     val anyCommandRunning = state.sessions.values.any { it.command.running }
     val anyArtifactDownloading = state.sessions.values.any { it.artifact.downloading }
     var showFiles by remember { mutableStateOf(false) }
@@ -148,6 +151,7 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
                         .padding(end = 16.dp, bottom = 104.dp),
                 ) {
                     Button(onClick = {
+                        promptedText = null
                         inputTarget = vm.captureCommandInput(activeTabId)
                         if (inputTarget == null) {
                             Toast.makeText(context, "Command input is not available yet.", Toast.LENGTH_SHORT).show()
@@ -167,7 +171,20 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
     }
 
     LaunchedEffect(command.running) {
-        if (!command.running) inputTarget = null
+        if (!command.running) {
+            inputTarget = null
+            promptedText = null
+        }
+    }
+    // Every prompt generation is handled once; recomposition and output updates cannot reopen it.
+    LaunchedEffect(activeTabId, command.startedAtMs, command.inputPromptGeneration) {
+        if (command.running && !command.awaitingSudoPassword && command.inputPromptGeneration > 0) {
+            val target = vm.captureCommandInput(activeTabId)
+            if (target != null) {
+                inputTarget = target
+                promptedText = command.inputPrompt
+            }
+        }
     }
     // Automatic sudo prompts take precedence over an already open manual input dialog.
     // Preserve the manual dialog across normal output/status recompositions.
@@ -195,8 +212,10 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
             key(target) {
                 UnifiedInputDialog(
                     sudo = false,
+                    promptText = promptedText,
                     onSubmit = { reply ->
                         inputTarget = null
+                        promptedText = null
                         scope.launch {
                             val sent = withContext(Dispatchers.IO) { target.sendLine(reply) }
                             if (!sent) {
@@ -204,7 +223,10 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
                             }
                         }
                     },
-                    onDismiss = { inputTarget = null },
+                    onDismiss = {
+                        inputTarget = null
+                        promptedText = null
+                    },
                 )
             }
         }
@@ -214,6 +236,7 @@ private fun PocketDevInteractiveApp(vm: PocketDevViewModel) {
 @Composable
 private fun UnifiedInputDialog(
     sudo: Boolean,
+    promptText: String? = null,
     onSubmit: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -222,6 +245,8 @@ private fun UnifiedInputDialog(
     // Sudo credentials are masked by default. Generic command input can also be masked.
     var sensitive by remember(sudo) { mutableStateOf(sudo) }
     val masked = sensitive && !passwordVisible
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (sudo) "Input · sudo password" else "Command input") },
@@ -229,10 +254,11 @@ private fun UnifiedInputDialog(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     if (sudo) "The running command requests sudo authentication."
-                    else "Send a reply to the running command. An empty reply sends Enter."
+                    else promptText ?: "Send a reply to the running command. An empty reply sends Enter."
                 )
                 OutlinedTextField(
                     value = reply,
+                    modifier = Modifier.focusRequester(focusRequester),
                     onValueChange = { reply = it },
                     label = { Text(if (sudo) "Password" else "Reply") },
                     visualTransformation = if (masked) PasswordVisualTransformation() else VisualTransformation.None,
