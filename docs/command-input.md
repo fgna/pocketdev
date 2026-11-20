@@ -15,7 +15,7 @@ The dialog is bound to the execution that opened it. Switching projects dismisse
 it, and an expired dialog cannot write to a subsequent command in the same project.
 Input is available after the SSH command has started. This is line input over SSH,
 not a terminal emulator: programs requiring a TTY, raw keys, or terminal menus may
-need a different workflow. PocketDev does not infer that a quiet command wants input.
+need a different workflow. PocketDev detects a limited set of short, visible, unfinished prompts such as `Name: `, `Reply 2: `, `Enter value: ` and `Password: `, and automatically opens Input with keyboard focus. Password/passphrase prompts start masked. The manual Input button remains available for other prompts or quiet commands. An arbitrary silent stdin wait cannot be detected reliably.
 
 ## Device acceptance for #97
 
@@ -40,3 +40,10 @@ through PocketDev, and install it with the normal Android installer workflow.
    and verify cancellation still works.
 
 Do not use real secrets for tests that intentionally echo their input.
+
+## Device acceptance for #144
+
+1. Run `printf 'Name: ' >&2; IFS= read -r name; printf 'Hello %s\n' "$name"`. Verify the Input dialog opens automatically, displays `Name:`, focuses the input field, and the reply completes the same command.
+2. Run `for n in 1 2; do printf 'Reply %s: ' "$n" >&2; IFS= read -r reply; printf '<%s>\n' "$reply"; done`. Verify the second prompt opens again after the first reply, and normal output does not close the dialog while typing.
+3. Run `printf 'Password: ' >&2; IFS= read -r secret; printf 'received\n'`. Verify hidden input is the default and no entered secret appears in diagnostics or history.
+4. Verify cancellation sends nothing, manual Input still works for an unrecognized prompt, a stopped command cannot accept stale input, switching project dismisses the dialog, and sudo prompts continue to work.
