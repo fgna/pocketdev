@@ -161,6 +161,31 @@ fun PocketDevApp(
             )
         }
 
+        if (state.pendingApkChoices.isNotEmpty() && state.pendingApkTabId == state.activeTabId) {
+            AlertDialog(
+                onDismissRequest = vm::dismissApkChoices,
+                title = { Text("Choose APK") },
+                text = {
+                    Column(
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("Multiple APKs were found. Select the one to download and remember for this project.")
+                        state.pendingApkChoices.forEach { path ->
+                            TextButton(
+                                onClick = { vm.chooseApk(path) },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text(path) }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = vm::dismissApkChoices) { Text("Cancel") }
+                },
+            )
+        }
+
         if (state.editorOpen) {
             ProfileDialog(state.editor, vm::updateEditor, vm::closeEditor, vm::saveEditor)
         }
