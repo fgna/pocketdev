@@ -39,6 +39,8 @@ data class CommandUiState(
     val connectionError: String? = null,
     val awaitingSudoPassword: Boolean = false,
     val sudoPromptGeneration: Long = 0,
+    val inputPrompt: String? = null,
+    val inputPromptGeneration: Long = 0,
     val codexAction: String? = null,
     val codexNeedsInput: Boolean = false,
     val startedAtMs: Long? = null,
@@ -61,7 +63,7 @@ data class CommandUiState(
 
 object CommandStateReducer {
     fun reduce(current: CommandUiState, event: CommandEvent): CommandUiState = when (event) {
-        CommandEvent.Connecting -> current.copy(running = true, connectionError = null, awaitingSudoPassword = false, sudoPromptGeneration = 0, startedAtMs = System.currentTimeMillis(), lastActivityAtMs = null, codexAction = if (CodexProgress.enabled(current.command)) "Connecting" else null, codexNeedsInput = false, pendingCodexLine = "", remoteLogPrefix = null)
+        CommandEvent.Connecting -> current.copy(running = true, connectionError = null, awaitingSudoPassword = false, sudoPromptGeneration = 0, inputPrompt = null, inputPromptGeneration = 0, startedAtMs = System.currentTimeMillis(), lastActivityAtMs = null, codexAction = if (CodexProgress.enabled(current.command)) "Connecting" else null, codexNeedsInput = false, pendingCodexLine = "", remoteLogPrefix = null)
         CommandEvent.Connected -> current.copy(running = true)
         CommandEvent.SudoPasswordRequired -> current.copy(running = true, awaitingSudoPassword = true, sudoPromptGeneration = current.sudoPromptGeneration + 1)
         is CommandEvent.SudoPasswordSubmitted -> if (event.generation == current.sudoPromptGeneration) current.copy(running = true, awaitingSudoPassword = false) else current
@@ -71,9 +73,10 @@ object CommandStateReducer {
             running = false,
             exitCode = event.exitCode,
             awaitingSudoPassword = false,
+            inputPrompt = null,
             stderr = if (event.exitCode == 127) current.stderr + "\nPocketDev hint: command not found. Check SSH profile > Login shell and the server PATH (~/.profile, ~/.local/bin).\n" else current.stderr,
         )
-        is CommandEvent.ConnectionFailed -> current.copy(running = false, connectionError = event.message, awaitingSudoPassword = false)
+        is CommandEvent.ConnectionFailed -> current.copy(running = false, connectionError = event.message, awaitingSudoPassword = false, inputPrompt = null)
     }
     private const val MAX_VISIBLE_OUTPUT = 128 * 1024
     private const val MAX_PENDING_LINE = 64 * 1024
@@ -89,7 +92,14 @@ object CommandStateReducer {
             OutputStreamKind.STDOUT -> current.copy(stdout = visible(current.stdout + text))
             OutputStreamKind.STDERR -> current.copy(stderr = visible(current.stderr + text))
         }.copy(lastActivityAtMs = now)
-        if (event.stream != OutputStreamKind.STDOUT || !isCodex) return updated
+        val prompt = if (current.running && !current.awaitingSudoPassword) InputPromptDetector.detect(when (event.stream) {
+            OutputStreamKind.STDOUT -> updated.stdout
+            OutputStreamKind.STDERR -> updated.stderr
+        }) else null
+        val prompted = if (prompt != null && (prompt != current.inputPrompt || !current.running)) {
+            updated.copy(inputPrompt = prompt, inputPromptGeneration = current.inputPromptGeneration + 1)
+        } else updated
+        if (event.stream != OutputStreamKind.STDOUT || !isCodex) return prompted
         val merged = current.pendingCodexLine + text
         val lines = merged.split('\n')
         val complete = lines.dropLast(1)
@@ -104,6 +114,6 @@ object CommandStateReducer {
                 input = update.needsInput
             }
         }
-        return updated.copy(codexAction = action, codexNeedsInput = input, pendingCodexLine = pending, remoteLogPrefix = log)
+        return prompted.copy(codexAction = action, codexNeedsInput = input, pendingCodexLine = pending, remoteLogPrefix = log)
     }
 }
