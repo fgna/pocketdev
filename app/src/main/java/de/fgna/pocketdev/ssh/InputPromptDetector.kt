@@ -12,7 +12,10 @@ internal object InputPromptDetector {
 
     fun detect(output: String): String? {
         if (output.isEmpty() || output.last() == '\n' || output.last() == '\r') return null
-        val line = output.substringAfterLast('\n').substringAfterLast('\r')
+        val tail = output.takeLast(121)
+        val separator = tail.lastIndexOfAny(charArrayOf('\n', '\r'))
+        if (separator < 0 && output.length > tail.length) return null
+        val line = tail.substring(separator + 1)
         if (line.length > 120) return null
         return line.takeIf { prompt.matches(it) }?.trim()
     }
