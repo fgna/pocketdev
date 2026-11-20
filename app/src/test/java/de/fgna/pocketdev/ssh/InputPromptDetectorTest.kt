@@ -36,6 +36,15 @@ class InputPromptDetectorTest {
         assertNull(state.inputPrompt)
     }
 
+    @Test fun repeatedIdenticalPromptCreatesNewGeneration() {
+        var state = CommandUiState(running = true)
+        state = CommandStateReducer.reduce(state, CommandEvent.Output(OutputStreamKind.STDERR, "Reply: "))
+        assertEquals(1L, state.inputPromptGeneration)
+        state = CommandStateReducer.reduce(state, CommandEvent.Output(OutputStreamKind.STDERR, "\n"))
+        state = CommandStateReducer.reduce(state, CommandEvent.Output(OutputStreamKind.STDERR, "Reply: "))
+        assertEquals(2L, state.inputPromptGeneration)
+    }
+
     @Test fun startingNextCommandResetsPromptGeneration() {
         var state = CommandUiState(running = true)
         state = CommandStateReducer.reduce(state, CommandEvent.Output(OutputStreamKind.STDERR, "Password: "))
