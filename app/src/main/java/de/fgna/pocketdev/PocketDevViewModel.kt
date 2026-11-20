@@ -9,6 +9,8 @@ import de.fgna.pocketdev.artifact.SshArtifactRetriever
 import de.fgna.pocketdev.data.ProjectConfigRepository
 import de.fgna.pocketdev.data.ActionProfileRepository
 import de.fgna.pocketdev.data.SshProfileRepository
+import de.fgna.pocketdev.project.MultipleApkCandidatesException
+import de.fgna.pocketdev.project.ApkArtifactPath
 import de.fgna.pocketdev.project.ProjectAction
 import de.fgna.pocketdev.project.ProjectCommandBuilder
 import de.fgna.pocketdev.project.ProjectConfig
@@ -89,6 +91,8 @@ data class PocketDevState(
     val project: ProjectConfig? = null,
     val sessions: Map<String, ProjectSessionState> = emptyMap(),
     val tabSelection: WorkspaceTabSelection = WorkspaceTabSelection(emptyList(), null),
+    val pendingApkChoices: List<String> = emptyList(),
+    val pendingApkTabId: String? = null,
     val projectEditorOpen: Boolean = false,
     val projectEditorId: String? = null,
     val projectEditor: ProjectEditorState = ProjectEditorState(),
@@ -514,6 +518,28 @@ class PocketDevViewModel(
         return true
     }
 
+    fun dismissApkChoices() = updateState {
+        it.copy(pendingApkChoices = emptyList(), pendingApkTabId = null)
+    }
+
+    fun chooseApk(path: String) {
+        val state = _state.value
+        val tabId = state.pendingApkTabId ?: return
+        if (tabId != state.activeTabId || path !in state.pendingApkChoices) return
+        val project = state.project ?: return
+        ApkArtifactPath.validateOptional(path)
+        val collection = projectRepository.upsert(project.copy(apkPath = path), makeActive = false)
+        updateState {
+            it.copy(
+                projects = collection.projects,
+                project = it.project?.takeIf { current -> current.id == project.id }?.copy(apkPath = path) ?: it.project,
+                pendingApkChoices = emptyList(),
+                pendingApkTabId = null,
+            )
+        }
+        downloadLatestApk()
+    }
+
     fun downloadLatestApk() {
         val profile = _state.value.profile ?: return
         val activeId = _state.value.project?.id ?: return
@@ -553,6 +579,9 @@ class PocketDevViewModel(
                     )
                 }
             }.onFailure { error ->
+                if (error is MultipleApkCandidatesException && _state.value.activeTabId == tabId) {
+                    updateState { it.copy(pendingApkChoices = error.candidates, pendingApkTabId = tabId) }
+                }
                 updateSession(tabId) {
                     it.copy(
                         artifact = ArtifactDownloadState(
