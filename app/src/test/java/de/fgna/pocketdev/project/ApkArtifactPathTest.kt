@@ -5,6 +5,21 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class ApkArtifactPathTest {
+    @Test fun multipleCandidatesExposeAllSafePathsForSelection() {
+        val candidates = listOf(
+            "./app/build/outputs/apk/debug/app-debug.apk",
+            "./saugi/build/outputs/apk/debug/saugi-debug.apk",
+        )
+        val failure = assertThrows(MultipleApkCandidatesException::class.java) {
+            ApkArtifactPath.select("", candidates)
+        }
+        assertEquals(
+            listOf("app/build/outputs/apk/debug/app-debug.apk", "saugi/build/outputs/apk/debug/saugi-debug.apk"),
+            failure.candidates,
+        )
+    }
+
+
     @Test fun explicitPathWinsRegardlessOfCandidateTimesOrVariant() {
         val configured = "android/app/build/outputs/apk/debug/app-debug.apk"
         assertEquals(configured, ApkArtifactPath.select(configured, listOf(
