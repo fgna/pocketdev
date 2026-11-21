@@ -92,11 +92,21 @@ fun PocketDevApp(
     vm: PocketDevViewModel = viewModel(),
     onFiles: (() -> Unit)? = null,
     onTerminal: (() -> Unit)? = null,
+    navigationRequest: String? = null,
+    onNavigationHandled: () -> Unit = {},
 ) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
     var issueDraft by remember { mutableStateOf<DiagnosticIssueDraft?>(null) }
     var projectSwitcherOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(navigationRequest) {
+        when (navigationRequest) {
+            "Server" -> vm.openEditor()
+            "Projects" -> projectSwitcherOpen = true
+            else -> Unit
+        }
+        if (navigationRequest != null) onNavigationHandled()
+    }
     var pendingRunTabId by remember { mutableStateOf<String?>(null) }
 
     val nearbyPermissionLauncher = rememberLauncherForActivityResult(
