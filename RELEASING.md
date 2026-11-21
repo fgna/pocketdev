@@ -56,7 +56,11 @@ git push origin v1.1.0
 ```
 
 7. Create the GitHub Release from the same tag and use the changelog as the release notes basis.
-8. For F-Droid, ensure the corresponding metadata points to that immutable tag and version code.
+8. Publishing the GitHub Release triggers `.github/workflows/publish-signed-release.yml`, which builds, signs and attaches `PocketDev-<version>.apk`. Confirm that workflow succeeds before treating the release as complete.
+9. Verify that the release APK certificate fingerprint matches the expected long-lived PocketDev release key.
+10. For F-Droid, ensure the corresponding metadata points to that immutable tag and version code. For reproducible-build publishing, the versioned `Binaries` URL and `AllowedAPKSigningKeys` fingerprint must match the published developer-signed APK.
+
+The one-time key setup and GitHub secret names are documented in [docs/release-signing.md](docs/release-signing.md). Never rotate the release key as routine maintenance; key loss or unintended replacement breaks the Android signing lineage.
 
 ## Release cadence
 
