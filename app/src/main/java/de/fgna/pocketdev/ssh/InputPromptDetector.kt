@@ -10,6 +10,11 @@ internal object InputPromptDetector {
         """(?i)^(?:enter(?:\s+|$)|please\s+(?:enter|type|provide)\s+|name\b|reply\b|input\b|password\b|passphrase\b|username\b|verification\s+code\b)[^\r\n]{0,96}[:?]\s?$"""
     )
 
+    // apt prints a confirmation prompt ending in [Y/n] or [y/N], without a trailing colon.
+    private val aptConfirmation = Regex(
+        """(?i)^do you want to continue\?\s*\[y/n\]\s?$"""
+    )
+
     fun detect(output: String): String? {
         if (output.isEmpty() || output.last() == '\n' || output.last() == '\r') return null
         val tail = output.takeLast(121)
@@ -17,6 +22,6 @@ internal object InputPromptDetector {
         if (separator < 0 && output.length > tail.length) return null
         val line = tail.substring(separator + 1)
         if (line.length > 120) return null
-        return line.takeIf { prompt.matches(it) }?.trim()
+        return line.takeIf { prompt.matches(it) || aptConfirmation.matches(it) }?.trim()
     }
 }
