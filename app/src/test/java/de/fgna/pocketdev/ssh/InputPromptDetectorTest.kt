@@ -14,9 +14,9 @@ class InputPromptDetectorTest {
     }
 
     @Test fun recognizesAptConfirmationPrompts() {
-        assertEquals("Do you want to continue? [Y/n]", InputPromptDetector.detect("Reading package lists...\\nDo you want to continue? [Y/n] "))
+        assertEquals("Do you want to continue? [Y/n]", InputPromptDetector.detect("Reading package lists...\nDo you want to continue? [Y/n] "))
         assertEquals("Do you want to continue? [y/N]", InputPromptDetector.detect("Do you want to continue? [y/N]"))
-        assertNull(InputPromptDetector.detect("Do you want to continue? [Y/n]\\n"))
+        assertNull(InputPromptDetector.detect("Do you want to continue? [Y/n]\n"))
         assertNull(InputPromptDetector.detect("Do you want to continue? [Y/n] done"))
         assertNull(InputPromptDetector.detect("The following packages will be installed:"))
     }
@@ -28,7 +28,7 @@ class InputPromptDetectorTest {
         state = CommandStateReducer.reduce(state, CommandEvent.Output(OutputStreamKind.STDOUT, "inue? [Y/n] "))
         assertEquals("Do you want to continue? [Y/n]", state.inputPrompt)
         assertEquals(1L, state.inputPromptGeneration)
-        state = CommandStateReducer.reduce(state, CommandEvent.Output(OutputStreamKind.STDERR, "status update\\n"))
+        state = CommandStateReducer.reduce(state, CommandEvent.Output(OutputStreamKind.STDERR, "status update\n"))
         assertEquals(1L, state.inputPromptGeneration)
         state = CommandStateReducer.reduce(state, CommandEvent.Completed(0))
         assertNull(state.inputPrompt)
