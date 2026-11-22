@@ -12,7 +12,7 @@ internal object InputPromptDetector {
 
     // apt prints a confirmation prompt ending in [Y/n] or [y/N], without a trailing colon.
     private val aptConfirmation = Regex(
-        """(?i)^do you want to continue\\?\\s*\\[y/n\\]\\s?$"""
+        """(?i)^do you want to continue\?\s*\[y/n\]\s?$"""
     )
 
     fun detect(output: String): String? {
